@@ -46,4 +46,10 @@ type MppInfo struct {
 	InstanceName string   `json:"instance_name"` // ID
 	ZoneList     []string `json:"zone_list"`     // sub_cluster
 	IsLeader     string   `json:"is_leader"`
+	LoadWeight   int64    `json:"load_weight"`
+}
+
+type NodeWithLoadWeight struct {
+	Tag        string
+	LoadWeight int64
 }

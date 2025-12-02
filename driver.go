@@ -22,7 +22,8 @@ func (d PolarDBXDriver) Open(dsn string) (driver.Conn, error) {
 
 	if pCfg.DirectMode {
 		driverCtx := &mysql.MySQLDriver{}
-		return driverCtx.Open(pCfg.FormatMYSQLDSN(pCfg.Addr))
+		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
+		return driverCtx.Open(mysqlDsn)
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -47,7 +48,8 @@ func init() {
 func NewConnector(pCfg *PolarDBXConfig) (driver.Connector, error) {
 	if pCfg.DirectMode {
 		driverCtx := &mysql.MySQLDriver{}
-		return driverCtx.OpenConnector(pCfg.FormatMYSQLDSN(pCfg.Addr))
+		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
+		return driverCtx.OpenConnector(mysqlDsn)
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -69,7 +71,8 @@ func (d PolarDBXDriver) OpenConnector(dsn string) (driver.Connector, error) {
 
 	if pCfg.DirectMode {
 		driverCtx := &mysql.MySQLDriver{}
-		return driverCtx.OpenConnector(pCfg.FormatMYSQLDSN(pCfg.Addr))
+		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
+		return driverCtx.OpenConnector(mysqlDsn)
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -95,16 +98,22 @@ func recordDsn(dsn string, pCfg *PolarDBXConfig, hm *HaManager) error {
 			pCfg.ApplyDelayThreshold, pCfg.SlaveWeightThreshold, pCfg.LoadBalanceAlgorithm)
 	} else {
 		connectAddress, err = hm.getAvailableCnWithWait(pCfg.HaTimeoutMillis, pCfg.ZoneName, pCfg.MinZoneNodes,
-			pCfg.BackupZoneName, pCfg.SlaveOnly, pCfg.InstanceName, pCfg.MppRole, pCfg.LoadBalanceAlgorithm)
+			pCfg.BackupZoneName, pCfg.SlaveOnly, pCfg.InstanceName, pCfg.MppRole, pCfg.LoadBalanceAlgorithm, pCfg.CnGroup, pCfg.BackupCnGroup)
 	}
 	if err != nil {
 		return err
 	} else {
-		db, err := sql.Open("mysql", pCfg.FormatMYSQLDSN(connectAddress))
+		mysqlDsn, hasParam := pCfg.FormatMYSQLDSN(connectAddress)
+		db, err := sql.Open("mysql", mysqlDsn)
 		if err != nil {
 			return err
 		}
-		_, err = db.Exec(fmt.Sprintf(recordDsnQuery, dsn))
+		if hasParam {
+			mysqlDsn = mysqlDsn + fmt.Sprintf("&driverVersion=%s", Version)
+		} else {
+			mysqlDsn = mysqlDsn + fmt.Sprintf("?driverVersion=%s", Version)
+		}
+		_, err = db.Exec(fmt.Sprintf(recordDsnQuery, mysqlDsn))
 		if err != nil {
 			return err
 		}

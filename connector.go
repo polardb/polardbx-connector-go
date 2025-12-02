@@ -36,7 +36,7 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 			cfg.ApplyDelayThreshold, cfg.SlaveWeightThreshold, cfg.LoadBalanceAlgorithm)
 	} else {
 		connectAddress, err = hm.getAvailableCnWithWait(cfg.HaTimeoutMillis, cfg.ZoneName, cfg.MinZoneNodes,
-			cfg.BackupZoneName, cfg.SlaveOnly, cfg.InstanceName, cfg.MppRole, cfg.LoadBalanceAlgorithm)
+			cfg.BackupZoneName, cfg.SlaveOnly, cfg.InstanceName, cfg.MppRole, cfg.LoadBalanceAlgorithm, cfg.CnGroup, cfg.BackupCnGroup)
 	}
 
 	if err != nil {
@@ -48,7 +48,8 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 		mainLogger.Debug(fmt.Sprintf("The connect node is: %s", connectAddress), cfg.EnableLog)
 
 		driverCtx := &mysql.MySQLDriver{}
-		openConnector, err := driverCtx.OpenConnector(cfg.FormatMYSQLDSN(connectAddress))
+		mysqlDsn, _ := cfg.FormatMYSQLDSN(connectAddress)
+		openConnector, err := driverCtx.OpenConnector(mysqlDsn)
 		if err != nil {
 			c.countDownConn(connectAddress)
 			return nil, err

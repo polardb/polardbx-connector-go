@@ -35,7 +35,7 @@ Standard Edition (Dn):
 | Parameter Name                          | Type   | Description                                                                              |
 |-----------------------------------------|--------|------------------------------------------------------------------------------------------|
 | `clusterId`                             | int64  | Cluster identifier. Optional. Automatically obtained on first connection.                |
-| `connectTimeout`                        | int32  | Timeout for acquiring an available DN node, default 3000ms.                              |
+| `connectTimeout`                        | int32  | Timeout for acquiring an available DN node, default 10000ms.                             |
 | `haCheckConnectTimeoutMillis`           | int32  | HA connection check timeout, default 3000ms.                                             |
 | `haCheckSocketTimeoutMillis`            | int32  | HA query check timeout, default 3000ms.                                                  |
 | `haCheckIntervalMillis`                 | int32  | HA check interval, default 5000ms.                                                       |

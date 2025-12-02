@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var Version = "v1.0.0"
+
 // Returns the bool value of the input.
 // The 2nd return value indicates if the input was a valid bool value
 func readBool(input string) (value bool, valid bool) {

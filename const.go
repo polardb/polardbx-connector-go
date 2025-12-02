@@ -36,6 +36,10 @@ const (
 	leaderLost         = 3
 )
 
+const (
+	defaultLoadWeight = 100
+)
+
 // Cn cluster states
 const (
 	cnAlive = 0

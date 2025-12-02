@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -74,28 +75,56 @@ func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) 
 	// convert string to address slices
 	addressStrings := strings.Split(pCfg.Addr, ",")
 
-	seed := time.Now().UnixNano()
-	randomAddress := addressStrings[rand.New(rand.NewSource(seed)).Intn(len(addressStrings))]
+	// Shuffle the addresses randomly
+	rand.Shuffle(len(addressStrings), func(i, j int) {
+		addressStrings[i], addressStrings[j] = addressStrings[j], addressStrings[i]
+	})
 
-	db, err := sql.Open("mysql", pCfg.FormatPolarDBXDSN(randomAddress))
-	if err != nil {
-		return
+	if len(addressStrings) == 0 {
+		return 0, false, fmt.Errorf("Invalid addresses: %s", pCfg.Addr)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("Failed to close database: %v", err)
+
+	var lastErr error = nil
+	// Try each address until we find one that works
+	for _, address := range addressStrings {
+		db, err := sql.Open("mysql", pCfg.FormatPolarDBXDSN(strings.TrimSpace(address)))
+		if err != nil {
+			lastErr = err
+			continue // Try next address
 		}
-	}()
 
-	var basicInfo BasicInFoQuery
-	err = db.QueryRow(basicInfoQuery).Scan(&basicInfo.Version, &basicInfo.ClusterID, &basicInfo.Port)
-	if err != nil {
-		return
+		func() {
+			defer func() {
+				if err := db.Close(); err != nil {
+					log.Printf("Failed to close database: %v", err)
+				}
+			}()
+
+			var basicInfo BasicInFoQuery
+			err = db.QueryRow(basicInfoQuery).Scan(&basicInfo.Version, &basicInfo.ClusterID, &basicInfo.Port)
+			if err != nil {
+				lastErr = err
+				return // Try next address
+			}
+
+			if strings.Contains(strings.ToUpper(basicInfo.Version), "-TDDL-") {
+				clusterId, isDn, err = -1, false, nil
+				return
+			}
+
+			clusterId, isDn, err = basicInfo.ClusterID, true, nil
+		}()
+
+		// If we got here without continuing, we found an available node
+		if err == nil {
+			return clusterId, isDn, nil
+		}
 	}
-	if strings.Contains(strings.ToUpper(basicInfo.Version), "-TDDL-") {
-		return -1, false, nil
+
+	if lastErr != nil {
+		checkLogger.Error(lastErr.Error(), pCfg.EnableProbeLog)
 	}
-	return basicInfo.ClusterID, true, nil
+	return 0, false, lastErr
 }
 
 func (n *XClusterNodeBasic) Equals(other *XClusterNodeBasic) bool {
@@ -188,6 +217,13 @@ type HaManager struct {
 var managers sync.Map
 var mu sync.Mutex
 
+const ILLEGAL_CHARS = `[\\/:*?"<>|\n\r\t]`
+
+func sanitizeAddr(addr string) string {
+	re := regexp.MustCompile(ILLEGAL_CHARS)
+	return re.ReplaceAllString(addr, "-")
+}
+
 // GetManager 根据集群信息获取或创建并返回一个HaManager实例。
 // 如果集群信息中未指定集群ID，将尝试自动探测。
 // 如果指定或自动生成了集群ID，将根据集群信息和系统临时目录路径生成一个JSON文件路径。
@@ -214,9 +250,9 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 		if pCfg.JsonFile == "" {
 			if isDn {
 				if useIPv6 {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-IPv6.json", clusterId))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv6.json", clusterId, sanitizeAddr(pCfg.Addr)))
 				} else {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-IPv4.json", clusterId))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv4.json", clusterId, sanitizeAddr(pCfg.Addr)))
 				}
 			} else {
 				if useIPv6 {
@@ -352,7 +388,8 @@ func (hm *HaManager) getConnectionAddresses() (mapset.Set, error) {
 
 func (hm *HaManager) getDnFollower(applyDelayThreshold, slaveWeightThreshold int32, loadBalanceAlgorithm string) (string, error) {
 	// get healthy followers
-	db, err := sql.Open("mysql", hm.pCfg.FormatMYSQLDSN(hm.dnClusterInfo.LeaderInfo.Tag))
+	mysqlDsn, _ := hm.pCfg.FormatMYSQLDSN(hm.dnClusterInfo.LeaderInfo.Tag)
+	db, err := sql.Open("mysql", mysqlDsn)
 	if err != nil {
 		return "", err
 	}
@@ -381,7 +418,7 @@ func (hm *HaManager) getDnFollower(applyDelayThreshold, slaveWeightThreshold int
 			return "", err
 		}
 		address.Port += hm.dnClusterInfo.GlobalPortGap
-		followers.Add(fmt.Sprintf("%s:%d", address.Hostname, address.Port))
+		followers.Add(NodeWithLoadWeight{Tag: fmt.Sprintf("%s:%d", address.Hostname, address.Port), LoadWeight: defaultLoadWeight})
 	}
 
 	// do loadBalance
@@ -394,15 +431,34 @@ func (hm *HaManager) getNodeWithLoadBalance(candidates mapset.Set, loadBalanceAl
 	var follower string
 	if loadBalanceAlgorithm == random {
 		if candidates.Cardinality() > 0 {
+			totalWeight := int64(0)
+			nodesWithWeights := make([]NodeWithLoadWeight, 0, candidates.Cardinality())
+
+			for _, ni := range candidates.ToSlice() {
+				nodeWithWeight := ni.(NodeWithLoadWeight)
+				nodesWithWeights = append(nodesWithWeights, nodeWithWeight)
+				totalWeight += nodeWithWeight.LoadWeight
+			}
+
 			seed := time.Now().UnixNano()
-			follower = (candidates.ToSlice()[rand.New(rand.NewSource(seed)).Intn(candidates.Cardinality())]).(string)
-			mainLogger.Debug(fmt.Sprintf("LoadBalance: random, candidates: %v, selected: %s", candidates.ToSlice(), follower), hm.pCfg.EnableLog)
+			randomValue := rand.New(rand.NewSource(seed)).Int63n(totalWeight)
+
+			currentWeight := int64(0)
+			for _, nodeWithWeight := range nodesWithWeights {
+				currentWeight += nodeWithWeight.LoadWeight
+				if randomValue < currentWeight {
+					follower = nodeWithWeight.Tag
+					break
+				}
+			}
+
+			mainLogger.Debug(fmt.Sprintf("LoadBalance: weighted random, candidates: %v, selected: %s", candidates.ToSlice(), follower), hm.pCfg.EnableLog)
 		}
 	} else if loadBalanceAlgorithm == leastConn {
 		leastCnt := int64(math.MaxInt64)
 		leastCandidate := ""
 		for _, ni := range candidates.ToSlice() {
-			node := ni.(string)
+			node := ni.(NodeWithLoadWeight).Tag
 			cnt, ok := hm.connCnt[node]
 			if !ok {
 				follower = node
@@ -641,6 +697,7 @@ func (hm *HaManager) getMppInfo(address string) ([]*MppInfo, error) {
 	for rows.Next() {
 		var mppInfo MppInfo
 		var zoneNameString string
+		mppInfo.LoadWeight = defaultLoadWeight
 
 		err = rows.Scan(valuePtrs...)
 		if err != nil {
@@ -659,6 +716,21 @@ func (hm *HaManager) getMppInfo(address string) ([]*MppInfo, error) {
 				mppInfo.IsLeader = string(values[i].([]byte))
 			case "sub_cluster":
 				zoneNameString = string(values[i].([]byte))
+			case "load_weight":
+				loadWeight, ok := values[i].(int64)
+				if !ok {
+					loadWeight = defaultLoadWeight
+				}
+
+				if loadWeight < 0 {
+					loadWeight = 0
+				}
+
+				if loadWeight > defaultLoadWeight {
+					loadWeight = defaultLoadWeight
+				}
+
+				mppInfo.LoadWeight = loadWeight
 			}
 		}
 
@@ -692,7 +764,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 			defer wg.Done()
 			info, err := hm.getDnInfo(address.(string))
 			if err != nil {
-				checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+				checkLogger.Error(err.Error(), hm.pCfg.EnableProbeLog)
 			}
 			if info != nil {
 				mu.Lock()
@@ -835,6 +907,10 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 
 func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 	applyDelayThreshold, slaveWeightThreshold int32, loadBalanceAlgorithm string) (string, error) {
+	_, isFirstTime := hm.getDnLeader()
+	if isFirstTime {
+		timeout = max(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
+	}
 	timeoutNanos := time.Now().UnixNano() + int64(timeout)*1000000
 	for {
 		nowNanos := time.Now().UnixNano()
@@ -887,8 +963,15 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 }
 
 func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZoneNodes int32,
-	backupZoneName string, slaveRead bool, instanceName string, mppRole string, loadBalanceAlgorithm string) (string, error) {
-
+	backupZoneName string, slaveRead bool, instanceName string, mppRole string, loadBalanceAlgorithm string,
+	cnGroup string, backupCnGroup string) (string, error) {
+	hm.mu.Lock()
+	isFirstTime := hm.getValidCn(zoneName, minZoneNodes, backupZoneName,
+		slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup) != ""
+	hm.mu.Unlock()
+	if isFirstTime {
+		timeout = max(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
+	}
 	timeoutNanos := time.Now().UnixNano() + int64(timeout)*1000000
 	for {
 		nowNanos := time.Now().UnixNano()
@@ -897,7 +980,7 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 			// last try
 			hm.mu.Lock()
 			if cn := hm.getValidCn(zoneName, minZoneNodes, backupZoneName,
-				slaveRead, instanceName, mppRole, loadBalanceAlgorithm); cn != "" {
+				slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup); cn != "" {
 				hm.mu.Unlock()
 				return cn, nil
 			} else {
@@ -909,7 +992,7 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 		// still have time to try
 		hm.mu.Lock()
 		if cn := hm.getValidCn(zoneName, minZoneNodes, backupZoneName,
-			slaveRead, instanceName, mppRole, loadBalanceAlgorithm); cn != "" {
+			slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup); cn != "" {
 			hm.mu.Unlock()
 			return cn, nil
 		}
@@ -930,9 +1013,70 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 	}
 }
 
+func (hm *HaManager) genZoneNameFromCnGroup(cnGroup string) string {
+	// Parse cnGroup to get a set of hosts
+	cnGroupSet, err := decodeCnGroup(cnGroup)
+	if err != nil || cnGroupSet == nil || len(cnGroupSet) == 0 {
+		return ""
+	}
+
+	// Create a set for zones (using map[string]bool as a set)
+	zoneSet := make(map[string]bool)
+
+	// Iterate through MPPs (which is hm.cnClusterInfo in Go)
+	for _, mppInfo := range hm.cnClusterInfo {
+		// Extract host from the Tag field
+		host := decodeHostFromMPPInfo(mppInfo.Tag)
+
+		// Check if the host is in cnGroupSet
+		if cnGroupSet[host] {
+			// Add zones from ZoneList (equivalent to subCluster in Java)
+			for _, zone := range mppInfo.ZoneList {
+				if zone != "" {
+					zoneSet[zone] = true
+				}
+			}
+		}
+	}
+
+	// If we have zones, join them into a comma-separated string
+	if len(zoneSet) > 0 {
+		zones := make([]string, 0, len(zoneSet))
+		for zone := range zoneSet {
+			zones = append(zones, zone)
+		}
+		return strings.Join(zones, ",")
+	}
+
+	return ""
+}
+
+func decodeZoneFromMppInfo(mppInfo string) []string {
+	if mppInfo != "" {
+		return strings.Split(strings.TrimSpace(mppInfo), ",")
+	}
+	return []string{}
+}
+
+func decodeHostFromMPPInfo(tag string) string {
+	if tag != "" {
+		parts := strings.Split(tag, ":")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	return ""
+}
+
 func (hm *HaManager) getValidCn(zoneName string, minZoneNodes int32,
-	backupZoneName string, slaveRead bool, instanceName string, mppRole string, loadBalanceAlgorithm string) string {
+	backupZoneName string, slaveRead bool, instanceName string, mppRole string, loadBalanceAlgorithm string,
+	cnGroup string, backupCnGroup string) string {
 	mainLogger.Debug(fmt.Sprintf("try to get valid cn: %s, minZoneNodes: %d, instanceName: %s", zoneName, minZoneNodes, instanceName), hm.pCfg.EnableLog)
+
+	if zoneName == "" && backupZoneName == "" {
+		zoneName = hm.genZoneNameFromCnGroup(cnGroup)
+		backupZoneName = hm.genZoneNameFromCnGroup(backupCnGroup)
+	}
 
 	zoneSet := getZoneSet(zoneName)
 	backupZoneSet := getZoneSet(backupZoneName)
@@ -946,10 +1090,12 @@ func (hm *HaManager) getValidCn(zoneName string, minZoneNodes int32,
 				(!slaveRead && (strings.EqualFold(mppRole, w) || mppRole == "") && strings.EqualFold(cn.Role, w))) {
 			mainLogger.Debug(fmt.Sprintf("valid cn: %v, zoneSet: %v, zonesetSize: %d", cn, zoneSet, zoneSet.Cardinality()), hm.pCfg.EnableLog)
 			if zoneSet.Cardinality() == 0 || isOverlapped(zoneSet, cn.ZoneList) {
-				validCn.Add(cn.Tag)
+				// Store both tag and load weight as a key-value pair
+				validCn.Add(NodeWithLoadWeight{Tag: cn.Tag, LoadWeight: cn.LoadWeight})
 			}
 			if isOverlapped(backupZoneSet, cn.ZoneList) {
-				backupCn.Add(cn.Tag)
+				// Store both tag and load weight as a key-value pair
+				backupCn.Add(NodeWithLoadWeight{Tag: cn.Tag, LoadWeight: cn.LoadWeight})
 			}
 		}
 	}
@@ -994,6 +1140,38 @@ func getZoneList(zoneName string) []string {
 		zoneList = append(zoneList, strings.TrimSpace(aZ))
 	}
 	return zoneList
+}
+
+// decodeCnGroup parses a comma-separated list of "ip:port" strings and returns a set of IPs.
+// Input: ip0:port0,ip1:port1,ip2:port2. Return: {ip0, ip1, ip2}
+func decodeCnGroup(cnGroup string) (map[string]bool, error) {
+	if cnGroup == "" {
+		return nil, nil
+	}
+
+	cnGroupSet := make(map[string]bool)
+	entries := strings.Split(cnGroup, ",")
+
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		parts := strings.Split(entry, ":")
+		if len(parts) < 1 {
+			return nil, fmt.Errorf("invalid format for entry: %s", entry)
+		}
+
+		ip := strings.TrimSpace(parts[0])
+		if ip == "" {
+			return nil, fmt.Errorf("empty IP in entry: %s", entry)
+		}
+
+		cnGroupSet[ip] = true
+	}
+
+	return cnGroupSet, nil
 }
 
 func (hm *HaManager) DnHaChecker() {
@@ -1077,7 +1255,7 @@ func (hm *HaManager) fullyCheck() int32 {
 	if leader != nil && conn != nil {
 		_, err := conn.ExecContext(context.Background(), setPingMode)
 		if err != nil {
-			checkLogger.Error(fmt.Sprintf("set ping mode failed: %s", err.Error()), hm.pCfg.EnableLog)
+			checkLogger.Error(fmt.Sprintf("set ping mode failed: %s", err.Error()), hm.pCfg.EnableProbeLog)
 		}
 		return leaderAlive
 	}
@@ -1098,7 +1276,7 @@ func (hm *HaManager) CnHaChecker() {
 			addr := ai.(string)
 			mppInfo, err := hm.getMppInfo(addr)
 			if err != nil {
-				checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+				checkLogger.Error(err.Error(), hm.pCfg.EnableProbeLog)
 				continue
 			}
 			// add mpp info to cnMap

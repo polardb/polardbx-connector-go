@@ -24,7 +24,7 @@ type PolarDBXConfig struct {
 
 	// PolarDBX params
 	ClusterID                             int64
-	HaTimeoutMillis                       int32 // connect timeout for getting node, default: 5000
+	HaTimeoutMillis                       int32 // connect timeout for getting node, default: 10000
 	HaCheckConnectTimeoutMillis           int32 // dial timeout for HA mysql connection
 	HaCheckSocketTimeoutMillis            int32 // read timeout for HA mysql connection
 	HaCheckIntervalMillis                 int32 // the same as CheckLeaderTransferringIntervalMillis in DN
@@ -39,6 +39,7 @@ type PolarDBXConfig struct {
 	DirectMode                            bool
 	LoadBalanceAlgorithm                  string
 	EnableLog                             bool
+	EnableProbeLog                        bool
 
 	// PolarDBX params: CN only
 	ZoneName           string
@@ -47,6 +48,8 @@ type PolarDBXConfig struct {
 	InstanceName       string
 	MppRole            string
 	EnableFollowerRead int32
+	CnGroup            string
+	BackupCnGroup      string
 
 	// MYSQL params
 	MysqlParams map[string]string
@@ -58,7 +61,7 @@ type PolarDBXConfig struct {
 func NewPolarDBXConfig() *PolarDBXConfig {
 	cfg := &PolarDBXConfig{
 		ClusterID:                             -1,
-		HaTimeoutMillis:                       5000,
+		HaTimeoutMillis:                       10000,
 		HaCheckConnectTimeoutMillis:           3000,
 		HaCheckSocketTimeoutMillis:            3000,
 		CheckLeaderTransferringIntervalMillis: 100,
@@ -69,7 +72,8 @@ func NewPolarDBXConfig() *PolarDBXConfig {
 		IgnoreVip:                             true,
 		EnableFollowerRead:                    -1,
 		LoadBalanceAlgorithm:                  random,
-		EnableLog:                             false, // TODO: true
+		EnableLog:                             true,
+		EnableProbeLog:                        false,
 		MysqlParams:                           make(map[string]string),
 		PropertiesSet:                         mapset.NewSet(),
 	}
@@ -241,7 +245,7 @@ func (pCfg *PolarDBXConfig) FormatPolarDBXDSN(addr string) string {
 	return buf.String()
 }
 
-func (pCfg *PolarDBXConfig) FormatMYSQLDSN(addr string) string {
+func (pCfg *PolarDBXConfig) FormatMYSQLDSN(addr string) (string, bool) {
 	var buf bytes.Buffer
 
 	// [username[:password]@]
@@ -282,7 +286,7 @@ func (pCfg *PolarDBXConfig) FormatMYSQLDSN(addr string) string {
 		}
 	}
 
-	return buf.String()
+	return buf.String(), hasParam
 }
 
 // ParsePolarDBXDSN parses the DSN string to polardb-x and mysql Config
@@ -450,6 +454,12 @@ func parsePolarDBXDSNParams(pCfg *PolarDBXConfig, params string) error {
 				if !isBool {
 					return errors.New("invalid bool value: " + value)
 				}
+			case "enableprobelog":
+				var isBool bool
+				pCfg.EnableProbeLog, isBool = readBool(value)
+				if !isBool {
+					return errors.New("invalid bool value: " + value)
+				}
 			case "slaveread":
 				var isBool bool
 				pCfg.SlaveOnly, isBool = readBool(value)
@@ -478,6 +488,10 @@ func parsePolarDBXDSNParams(pCfg *PolarDBXConfig, params string) error {
 				}
 			case "loadbalancealgorithm":
 				pCfg.LoadBalanceAlgorithm = value
+			case "cngroup":
+				pCfg.CnGroup = value
+			case "backupcngroup":
+				pCfg.BackupCnGroup = value
 			default:
 
 			}
