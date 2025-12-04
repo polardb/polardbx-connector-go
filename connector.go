@@ -79,10 +79,8 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 
 // we have in advance add conn count, if it failed to create, we should count down
 func (c *connector) countDownConn(addr string) {
-	c.hm.mu.Lock()
-	defer c.hm.mu.Unlock()
 	if !c.hm.isDn || c.cfg.SlaveOnly {
-		c.hm.connCnt[addr]--
+		c.hm.decrementConnCounter(addr)
 	}
 }
 

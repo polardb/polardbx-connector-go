@@ -8,6 +8,7 @@ const (
 	setPingMode               = "/* PolarDB-X-Driver HaManager */ set session ping_mode='IS_LEADER,NOT_IN_LEADER_TRANSFER,NO_CLUSTER_CHANGED';"
 	showMppQuery              = "/* PolarDB-X-HA-Driver HaManager */ show mpp;"
 	recordDsnQuery            = "/* PolarDB-X-Driver HaManager */ call dbms_conn.comment_connection('%s');"
+	recordDsnCnQuery          = "/* PolarDB-X-Driver HaManager */ call polardbx.record_jdbc_url('%s');"
 	clusterHealthQuery        = "/* PolarDB-X-Driver HaManager */ select a.Role, a.IP_PORT from information_schema.alisql_cluster_health a join information_schema.alisql_cluster_global b on a.IP_PORT=b.IP_PORT where a.APPLY_RUNNING='Yes' and a.APPLY_DELAY_SECONDS <= %d and b.ELECTION_WEIGHT > %d"
 	setFollowerReadTrue       = "/* PolarDB-X-Driver HaManager */ set session enable_in_memory_follower_read = true;"
 	setFollowerReadFalse      = "/* PolarDB-X-Driver HaManager */ set session enable_in_memory_follower_read = false;"

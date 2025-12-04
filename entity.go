@@ -2,6 +2,7 @@ package polardbx
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 type BasicInFoQuery struct {
@@ -52,4 +53,27 @@ type MppInfo struct {
 type NodeWithLoadWeight struct {
 	Tag        string
 	LoadWeight int64
+}
+
+// String returns a string representation of XClusterNodeBasic
+func (x *XClusterNodeBasic) String() string {
+	if x == nil {
+		return "<nil>"
+	}
+
+	// Handle peers slice formatting
+	peersStr := "[]"
+	if len(x.Peers) > 0 {
+		peersStr = fmt.Sprintf("[")
+		for i, peer := range x.Peers {
+			if i > 0 {
+				peersStr += ", "
+			}
+			peersStr += peer.String()
+		}
+		peersStr += "]"
+	}
+
+	return fmt.Sprintf("XClusterNodeBasic{Tag:%s Connectable:%t Host:%s Port:%d PaxosPort:%d Role:%s Peers:%s Version:%s ClusterID:%d UpdateTime:%s}",
+		x.Tag, x.Connectable, x.Host, x.Port, x.PaxosPort, x.Role, peersStr, x.Version, x.ClusterID, x.UpdateTime)
 }

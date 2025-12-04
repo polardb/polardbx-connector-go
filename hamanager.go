@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/petermattis/goid"
 	"log"
 	"math"
 	"math/rand"
@@ -13,12 +14,14 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/deckarep/golang-set"
+	"github.com/pkg/errors"
 )
 
 // 将字符串形式的地址解析为包含IP和端口的InetSocketAddress对象。
@@ -68,7 +71,7 @@ func genClusterTag(clusterID int64, clusterAddress string) string {
 	if clusterID == -1 {
 		return clusterAddress + "#"
 	}
-	return fmt.Sprintf("%d", clusterID)
+	return fmt.Sprintf("%s#%d", clusterAddress, clusterID)
 }
 
 func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) {
@@ -90,6 +93,7 @@ func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) 
 		db, err := sql.Open("mysql", pCfg.FormatPolarDBXDSN(strings.TrimSpace(address)))
 		if err != nil {
 			lastErr = err
+			checkLogger.ErrorWithStack(err, pCfg.EnableProbeLog)
 			continue // Try next address
 		}
 
@@ -104,6 +108,7 @@ func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) 
 			err = db.QueryRow(basicInfoQuery).Scan(&basicInfo.Version, &basicInfo.ClusterID, &basicInfo.Port)
 			if err != nil {
 				lastErr = err
+				checkLogger.ErrorWithStack(err, pCfg.EnableProbeLog)
 				return // Try next address
 			}
 
@@ -122,7 +127,7 @@ func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) 
 	}
 
 	if lastErr != nil {
-		checkLogger.Error(lastErr.Error(), pCfg.EnableProbeLog)
+		checkLogger.ErrorWithStack(lastErr, pCfg.EnableProbeLog)
 	}
 	return 0, false, lastErr
 }
@@ -151,7 +156,7 @@ func (hm *HaManager) saveDnToFile(nodes []*XClusterNodeBasic, filename string) e
 	if err != nil {
 		return err
 	}
-	checkLogger.Info(fmt.Sprintf("Saved nodes to file: %s", filename), hm.pCfg.EnableLog)
+	checkLogger.Info(fmt.Sprintf("Saved nodes to file: %s", filename), hm.pCfg.EnableProbeLog)
 	return nil
 }
 
@@ -167,7 +172,7 @@ func (hm *HaManager) loadDnFromFile(filename string) ([]*XClusterNodeBasic, erro
 	if err := json.Unmarshal(data, &nodes); err != nil {
 		return nil, err
 	}
-	checkLogger.Info(fmt.Sprintf("Loaded nodes from file: %s", filename), hm.pCfg.EnableLog)
+	checkLogger.Info(fmt.Sprintf("Loaded nodes from file: %s", filename), hm.pCfg.EnableProbeLog)
 	return nodes, nil
 }
 
@@ -180,7 +185,7 @@ func (hm *HaManager) saveMppToFile(mpp []*MppInfo, filename string) error {
 	if err != nil {
 		return err
 	}
-	checkLogger.Info(fmt.Sprintf("Saved mpp to file: %s", filename), hm.pCfg.EnableLog)
+	checkLogger.Info(fmt.Sprintf("Saved mpp to file: %s", filename), hm.pCfg.EnableProbeLog)
 	return nil
 }
 
@@ -196,7 +201,7 @@ func (hm *HaManager) loadMppFromFile(filename string) ([]*MppInfo, error) {
 	if err := json.Unmarshal(data, &mpp); err != nil {
 		return nil, err
 	}
-	checkLogger.Info(fmt.Sprintf("Loaded mpp from file: %s", filename), hm.pCfg.EnableLog)
+	checkLogger.Info(fmt.Sprintf("Loaded mpp from file: %s", filename), hm.pCfg.EnableProbeLog)
 	return mpp, nil
 }
 
@@ -211,11 +216,35 @@ type HaManager struct {
 
 	dnClusterInfo *XClusterInfo
 	cnClusterInfo []*MppInfo
-	connCnt       map[string]int64
+	connCnt       *sync.Map // map[string]*int64, 使用原子操作
 }
 
 var managers sync.Map
 var mu sync.Mutex
+
+func (hm *HaManager) getOrCreateConnCounter(key string) *int64 {
+	if val, ok := hm.connCnt.Load(key); ok {
+		return val.(*int64)
+	}
+
+	// 创建新的计数器
+	counter := int64(0)
+	actual, loaded := hm.connCnt.LoadOrStore(key, &counter)
+	if loaded {
+		return actual.(*int64)
+	}
+	return &counter
+}
+
+func (hm *HaManager) incrementConnCounter(key string) int64 {
+	counter := hm.getOrCreateConnCounter(key)
+	return atomic.AddInt64(counter, 1)
+}
+
+func (hm *HaManager) decrementConnCounter(key string) int64 {
+	counter := hm.getOrCreateConnCounter(key)
+	return atomic.AddInt64(counter, -1)
+}
 
 const ILLEGAL_CHARS = `[\\/:*?"<>|\n\r\t]`
 
@@ -243,7 +272,9 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 		if err != nil {
 			return nil, err
 		}
-		clusterId = newClusterId
+		if clusterId == -1 {
+			clusterId = newClusterId
+		}
 
 		useIPv6 := isIPv6(pCfg.Addr)
 		var jsonFile string
@@ -302,7 +333,7 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 				isDn:          isDn,
 				useIPv6:       useIPv6,
 				dnClusterInfo: &XClusterInfo{GlobalPortGap: -10000},
-				connCnt:       make(map[string]int64),
+				connCnt:       &sync.Map{},
 			}
 			req := make(chan struct{})
 			manager.connReq = &req
@@ -389,9 +420,10 @@ func (hm *HaManager) getConnectionAddresses() (mapset.Set, error) {
 func (hm *HaManager) getDnFollower(applyDelayThreshold, slaveWeightThreshold int32, loadBalanceAlgorithm string) (string, error) {
 	// get healthy followers
 	mysqlDsn, _ := hm.pCfg.FormatMYSQLDSN(hm.dnClusterInfo.LeaderInfo.Tag)
+	checkLogger.Debug("get dn follower dsn "+mysqlDsn, hm.pCfg.EnableProbeLog)
 	db, err := sql.Open("mysql", mysqlDsn)
 	if err != nil {
-		return "", err
+		return "", errors.WithStack(err)
 	}
 	defer func(db *sql.DB) {
 		err := db.Close()
@@ -399,23 +431,25 @@ func (hm *HaManager) getDnFollower(applyDelayThreshold, slaveWeightThreshold int
 			log.Println("Error closing DB connection:", err)
 		}
 	}(db)
-	rows, err := db.Query(fmt.Sprintf(clusterHealthQuery, applyDelayThreshold, slaveWeightThreshold))
+	querySql := fmt.Sprintf(clusterHealthQuery, applyDelayThreshold, slaveWeightThreshold)
+	rows, err := db.Query(querySql)
 	if err != nil {
-		return "", err
+		mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
+		return "", errors.WithStack(err)
 	}
 	followers := mapset.NewSet()
 	for rows.Next() {
 		var role, ipPort string
 		err := rows.Scan(&role, &ipPort)
 		if err != nil {
-			return "", err
+			return "", errors.WithStack(err)
 		}
 		if !strings.EqualFold(role, "Follower") {
 			continue
 		}
 		address, err := decode(ipPort)
 		if err != nil {
-			return "", err
+			return "", errors.WithStack(err)
 		}
 		address.Port += hm.dnClusterInfo.GlobalPortGap
 		followers.Add(NodeWithLoadWeight{Tag: fmt.Sprintf("%s:%d", address.Hostname, address.Port), LoadWeight: defaultLoadWeight})
@@ -428,55 +462,49 @@ func (hm *HaManager) getDnFollower(applyDelayThreshold, slaveWeightThreshold int
 }
 
 func (hm *HaManager) getNodeWithLoadBalance(candidates mapset.Set, loadBalanceAlgorithm string) string {
-	var follower string
+	if candidates.Cardinality() <= 0 {
+		return ""
+	}
+	var selected *NodeWithLoadWeight
 	if loadBalanceAlgorithm == random {
-		if candidates.Cardinality() > 0 {
-			totalWeight := int64(0)
-			nodesWithWeights := make([]NodeWithLoadWeight, 0, candidates.Cardinality())
+		totalWeight := int64(0)
 
-			for _, ni := range candidates.ToSlice() {
-				nodeWithWeight := ni.(NodeWithLoadWeight)
-				nodesWithWeights = append(nodesWithWeights, nodeWithWeight)
-				totalWeight += nodeWithWeight.LoadWeight
-			}
-
-			seed := time.Now().UnixNano()
-			randomValue := rand.New(rand.NewSource(seed)).Int63n(totalWeight)
-
-			currentWeight := int64(0)
-			for _, nodeWithWeight := range nodesWithWeights {
-				currentWeight += nodeWithWeight.LoadWeight
-				if randomValue < currentWeight {
-					follower = nodeWithWeight.Tag
-					break
-				}
-			}
-
-			mainLogger.Debug(fmt.Sprintf("LoadBalance: weighted random, candidates: %v, selected: %s", candidates.ToSlice(), follower), hm.pCfg.EnableLog)
-		}
-	} else if loadBalanceAlgorithm == leastConn {
-		leastCnt := int64(math.MaxInt64)
-		leastCandidate := ""
 		for _, ni := range candidates.ToSlice() {
-			node := ni.(NodeWithLoadWeight).Tag
-			cnt, ok := hm.connCnt[node]
-			if !ok {
-				follower = node
-				break
-			}
-			if cnt < leastCnt {
-				leastCnt = cnt
-				leastCandidate = node
+			nodeWithWeight := ni.(NodeWithLoadWeight)
+			totalWeight += nodeWithWeight.LoadWeight
+			mainLogger.Debug(fmt.Sprintf("get node with lb, tag: %s, weight: %d", nodeWithWeight.Tag, nodeWithWeight.LoadWeight), hm.pCfg.EnableLog)
+			randomValue := rand.New(rand.NewSource(time.Now().UnixNano())).Float64()
+			if randomValue < float64(nodeWithWeight.LoadWeight)/float64(totalWeight) {
+				selected = &nodeWithWeight
 			}
 		}
-		if follower == "" {
-			follower = leastCandidate
+
+	} else if loadBalanceAlgorithm == leastConn {
+		// Convert candidates to slice and shuffle it
+		candidateSlice := candidates.ToSlice()
+		rand.Shuffle(len(candidateSlice), func(i, j int) {
+			candidateSlice[i], candidateSlice[j] = candidateSlice[j], candidateSlice[i]
+		})
+
+		selectedCnt := int64(math.MaxInt64)
+		for _, ni := range candidateSlice {
+			node := ni.(NodeWithLoadWeight)
+			cnt := *hm.getOrCreateConnCounter(node.Tag)
+			if selected == nil || cnt*selected.LoadWeight < selectedCnt*node.LoadWeight {
+				selected = &node
+				selectedCnt = cnt
+				mainLogger.Debug(fmt.Sprintf("get node with lb, tag: %s, weight: %d, cnt: %d", node.Tag, node.LoadWeight, cnt), hm.pCfg.EnableLog)
+			}
 		}
 	}
-	if follower != "" {
-		hm.connCnt[follower]++
+	if selected != nil {
+		hm.incrementConnCounter(selected.Tag)
+		mainLogger.Debug(fmt.Sprintf("LoadBalance: weighted %s, candidates: %v, selected: %s", loadBalanceAlgorithm, candidates.ToSlice(), selected.Tag), hm.pCfg.EnableLog)
+		return selected.Tag
+	} else {
+		mainLogger.ErrorWithStack(errors.New("Can not get node with load balance"), hm.pCfg.EnableLog)
+		return ""
 	}
-	return follower
 }
 
 func (hm *HaManager) getDnLeader() (string, bool) {
@@ -519,7 +547,7 @@ func (hm *HaManager) getDnInfo(address string) (*XClusterNodeBasic, error) {
 	if atomic.LoadInt64(&hm.pCfg.ClusterID) == -1 {
 		atomic.StoreInt64(&hm.pCfg.ClusterID, basicInfo.ClusterID)
 	} else if basicInfo.ClusterID != atomic.LoadInt64(&hm.pCfg.ClusterID) {
-		checkLogger.Error(fmt.Sprintf("cluster id mismatch: %d != %d", basicInfo.ClusterID, atomic.LoadInt64(&hm.pCfg.ClusterID)), hm.pCfg.EnableLog)
+		mainLogger.ErrorWithStack(errors.New(fmt.Sprintf("cluster id mismatch: %d != %d", basicInfo.ClusterID, atomic.LoadInt64(&hm.pCfg.ClusterID))), hm.pCfg.EnableLog)
 		return nil, ErrClusterMismatch
 	}
 
@@ -533,10 +561,10 @@ func (hm *HaManager) getDnInfo(address string) (*XClusterNodeBasic, error) {
 
 	// if not a leader, get tag and peers info and return
 	if !strings.EqualFold(role, "Leader") {
-		checkLogger.Debug(fmt.Sprintf("%s is %s.", address, role), hm.pCfg.EnableLog)
+		checkLogger.Debug(fmt.Sprintf("%s is %s.", address, role), hm.pCfg.EnableProbeLog)
 		var peers []*XClusterNodeBasic
 		if leader != "" {
-			checkLogger.Debug(fmt.Sprintf("%s is leader.", leader), hm.pCfg.EnableLog)
+			checkLogger.Debug(fmt.Sprintf("%s is leader.", leader), hm.pCfg.EnableProbeLog)
 			// get leader info
 			paxosAddr, err := decode(leader)
 			if err != nil {
@@ -572,7 +600,7 @@ func (hm *HaManager) getDnInfo(address string) (*XClusterNodeBasic, error) {
 		}, nil
 	}
 
-	checkLogger.Debug(fmt.Sprintf("%s is leader", address), hm.pCfg.EnableLog)
+	checkLogger.Debug(fmt.Sprintf("%s is leader", address), hm.pCfg.EnableProbeLog)
 
 	// calculate port gap
 	paxosAddress, err := decode(leader)
@@ -645,7 +673,7 @@ func (hm *HaManager) getDnInfo(address string) (*XClusterNodeBasic, error) {
 		Tag:         address,
 		Connectable: true,
 		Host:        host,
-		Port:        parsedAddress.Port,
+		Port:        basicInfo.Port,
 		PaxosPort:   paxosAddress.Port,
 		Role:        role,
 		Peers:       peers,
@@ -717,9 +745,10 @@ func (hm *HaManager) getMppInfo(address string) ([]*MppInfo, error) {
 			case "sub_cluster":
 				zoneNameString = string(values[i].([]byte))
 			case "load_weight":
-				loadWeight, ok := values[i].(int64)
-				if !ok {
+				loadWeight, err := strconv.Atoi(string(values[i].([]byte)))
+				if err != nil {
 					loadWeight = defaultLoadWeight
+					mainLogger.Debug(fmt.Sprint("Get load_weight not ok", values[i]), hm.pCfg.EnableLog)
 				}
 
 				if loadWeight < 0 {
@@ -730,7 +759,7 @@ func (hm *HaManager) getMppInfo(address string) ([]*MppInfo, error) {
 					loadWeight = defaultLoadWeight
 				}
 
-				mppInfo.LoadWeight = loadWeight
+				mppInfo.LoadWeight = int64(loadWeight)
 			}
 		}
 
@@ -749,7 +778,7 @@ func mayBecomeOrKnowLeader(role string) bool {
 func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	probedAddresses, err := hm.getConnectionAddresses()
 	if err != nil {
-		checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		return nil
 	}
 	nodes := make(map[string]*XClusterNodeBasic, probedAddresses.Cardinality())
@@ -764,7 +793,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 			defer wg.Done()
 			info, err := hm.getDnInfo(address.(string))
 			if err != nil {
-				checkLogger.Error(err.Error(), hm.pCfg.EnableProbeLog)
+				checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 			}
 			if info != nil {
 				mu.Lock()
@@ -782,7 +811,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 			if leader == nil {
 				leader = node
 			} else {
-				checkLogger.Error(fmt.Sprintf("More than one leader found: %s, %s", leader.Tag, node.Tag), hm.pCfg.EnableLog)
+				mainLogger.ErrorWithStack(errors.New(fmt.Sprintf("More than one leader found: %s, %s", leader, node)), hm.pCfg.EnableLog)
 				return nil
 			}
 		}
@@ -834,10 +863,8 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	var nodeList []*XClusterNodeBasic
 	for _, node := range nodes {
 		nodeList = append(nodeList, node)
-		// update cnt map
-		if _, ok := hm.connCnt[node.Tag]; !ok {
-			hm.connCnt[node.Tag] = 0
-		}
+		// update cnt map - ensure counter exists
+		hm.getOrCreateConnCounter(node.Tag)
 	}
 	sort.Slice(nodeList, func(i, j int) bool {
 		return nodeList[i].Tag < nodeList[j].Tag
@@ -848,7 +875,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	hm.mu.RUnlock()
 	err = hm.saveDnToFile(nodeList, jsonFile)
 	if err != nil {
-		checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 	}
 
 	versionStr := leader.Version
@@ -859,26 +886,26 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	if oldDB != nil {
 		err := oldDB.Close()
 		if err != nil {
-			checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
-			return nil
+			checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		}
+		hm.dnClusterInfo.LongConnection = nil
 	}
 	newDB, err := sql.Open("mysql", hm.pCfg.FormatPolarDBXDSN(leader.Tag))
 	if err != nil {
-		checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		return nil
 	}
 
 	var variableName, value string
 	err = newDB.QueryRow(checkLeaderTransferQuery).Scan(&variableName, &value)
 	if err != nil {
-		checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		return nil
 	}
 	isTransferring, _ := readBool(value)
 
 	if isTransferring {
-		checkLogger.Debug(fmt.Sprintf("The cluster is under leader transfer, current leader: %s.", leader.Tag), hm.pCfg.EnableLog)
+		checkLogger.Debug(fmt.Sprintf("The cluster is under leader transfer, current leader: %s.", leader.Tag), hm.pCfg.EnableProbeLog)
 		hm.mu.Lock()
 		hm.dnClusterInfo.LeaderInfo = nil
 		hm.dnClusterInfo.LongConnection = nil
@@ -889,10 +916,10 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 
 	conn, err := newDB.Conn(context.Background())
 	if err != nil {
-		checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 	}
 
-	checkLogger.Debug(fmt.Sprintf("Updating leader to %s.", leader.Tag), hm.pCfg.EnableLog)
+	checkLogger.Debug(fmt.Sprintf("Updating leader to %s.", leader.Tag), hm.pCfg.EnableProbeLog)
 	hm.mu.Lock()
 	hm.dnClusterInfo.LeaderInfo = leader
 	hm.dnClusterInfo.LongConnection = conn
@@ -911,6 +938,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 	if isFirstTime {
 		timeout = max(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
 	}
+	mainLogger.Debug(fmt.Sprintf("Getting node with timeout: %d ms.", timeout), hm.pCfg.EnableLog)
 	timeoutNanos := time.Now().UnixNano() + int64(timeout)*1000000
 	for {
 		nowNanos := time.Now().UnixNano()
@@ -923,8 +951,11 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 				} else if follower, err := hm.getDnFollower(applyDelayThreshold, slaveWeightThreshold, loadBalanceAlgorithm); follower != "" {
 					return follower, nil
 				} else if err != nil {
-					mainLogger.Error(err.Error(), hm.pCfg.EnableLog)
+					mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
 				}
+			}
+			if slaveOnly {
+				mainLogger.ErrorWithStack(errors.New("No follower found in slave read mode."), hm.pCfg.EnableLog)
 			}
 			return "", ErrNoNodeFound
 		}
@@ -936,7 +967,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 			} else if follower, err := hm.getDnFollower(applyDelayThreshold, slaveWeightThreshold, loadBalanceAlgorithm); follower != "" {
 				return follower, nil
 			} else if err != nil {
-				mainLogger.Error(err.Error(), hm.pCfg.EnableLog)
+				mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
 			}
 		}
 
@@ -947,6 +978,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 		hm.mu.RLock()
 		if hm.dnClusterInfo.LeaderInfo != nil {
 			hm.mu.RUnlock()
+			time.Sleep(time.Duration(hm.pCfg.HaCheckIntervalMillis) * time.Millisecond)
 			continue
 		}
 		localChan := *hm.connReq
@@ -954,9 +986,9 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 
 		select {
 		case <-time.After(max(0, time.Duration(sleepMillis)*time.Millisecond)):
-			checkLogger.Debug("Waiting leader time out, retry getting leader.", hm.pCfg.EnableLog)
+			checkLogger.Debug(fmt.Sprintf("[%d]Waiting leader time out, sleep milli: %d, retry getting leader.", goid.Get(), sleepMillis), hm.pCfg.EnableProbeLog)
 		case <-localChan:
-			checkLogger.Debug("Leader has been updated, retry getting leader.", hm.pCfg.EnableLog)
+			checkLogger.Debug("Leader has been updated, retry getting leader.", hm.pCfg.EnableProbeLog)
 		}
 
 	}
@@ -965,6 +997,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZoneNodes int32,
 	backupZoneName string, slaveRead bool, instanceName string, mppRole string, loadBalanceAlgorithm string,
 	cnGroup string, backupCnGroup string) (string, error) {
+	mainLogger.Debug(fmt.Sprintf("get cn with timeout %d, zoneName %s, minZoneNodes %d, backupZoneName %s, slaveRead %t, instanceName %s, mppRole %s, loadBalanceAlgorithm %s, cnGroup %s, backupCnGroup %s", timeout, zoneName, minZoneNodes, backupZoneName, slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup), hm.pCfg.EnableLog)
 	hm.mu.Lock()
 	isFirstTime := hm.getValidCn(zoneName, minZoneNodes, backupZoneName,
 		slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup) != ""
@@ -1195,17 +1228,17 @@ func (hm *HaManager) DnHaChecker() {
 		conn := hm.dnClusterInfo.LongConnection
 		hm.mu.RUnlock()
 		if leader != nil && conn != nil {
-			checkLogger.Debug("Starting ping leader.", hm.pCfg.EnableLog)
+			checkLogger.Debug("Starting ping leader.", hm.pCfg.EnableProbeLog)
 			clusterState = hm.pingLeader(leader, conn)
 		} else {
-			checkLogger.Debug("Starting fully check.", hm.pCfg.EnableLog)
+			checkLogger.Debug("Starting fully check.", hm.pCfg.EnableProbeLog)
 			startTime := time.Now().UnixNano()
 			clusterState = hm.fullyCheck()
 			endTime := time.Now().UnixNano()
-			checkLogger.Debug(fmt.Sprintf("Fully check time is %d ms.", (endTime-startTime)/1e6), hm.pCfg.EnableLog)
+			checkLogger.Debug(fmt.Sprintf("Fully check time is %d ms.", (endTime-startTime)/1e6), hm.pCfg.EnableProbeLog)
 		}
 
-		checkLogger.Debug(fmt.Sprintf("Cluster state is %d.", clusterState), hm.pCfg.EnableLog)
+		checkLogger.Debug(fmt.Sprintf("Cluster state is %d.", clusterState), hm.pCfg.EnableProbeLog)
 		// sleep for varying intervals for different cases
 		var interval int
 		if clusterState == leaderAlive {
@@ -1222,7 +1255,7 @@ func (hm *HaManager) DnHaChecker() {
 			interval = 0
 		}
 		time.Sleep(time.Duration(interval) * time.Millisecond)
-		checkLogger.Debug("New round for HA checking.", hm.pCfg.EnableLog)
+		checkLogger.Debug("New round for HA checking.", hm.pCfg.EnableProbeLog)
 	}
 }
 
@@ -1255,7 +1288,7 @@ func (hm *HaManager) fullyCheck() int32 {
 	if leader != nil && conn != nil {
 		_, err := conn.ExecContext(context.Background(), setPingMode)
 		if err != nil {
-			checkLogger.Error(fmt.Sprintf("set ping mode failed: %s", err.Error()), hm.pCfg.EnableProbeLog)
+			checkLogger.ErrorWithStack(errors.WithStack(errors.New(fmt.Sprintf("set ping mode failed: %s", err.Error()))), hm.pCfg.EnableProbeLog)
 		}
 		return leaderAlive
 	}
@@ -1270,13 +1303,13 @@ func (hm *HaManager) CnHaChecker() {
 		cnMap := make(map[string]*MppInfo)
 		probedAddresses, err := hm.getConnectionAddresses()
 		if err != nil {
-			checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+			checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		}
 		for _, ai := range probedAddresses.ToSlice() {
 			addr := ai.(string)
 			mppInfo, err := hm.getMppInfo(addr)
 			if err != nil {
-				checkLogger.Error(err.Error(), hm.pCfg.EnableProbeLog)
+				checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 				continue
 			}
 			// add mpp info to cnMap
@@ -1297,16 +1330,16 @@ func (hm *HaManager) CnHaChecker() {
 		}
 
 		// save to json file
-		checkLogger.Debug(fmt.Sprintf("CnCluster is %v.", cnCluster), hm.pCfg.EnableLog)
+		checkLogger.Debug(fmt.Sprintf("CnCluster is %v.", cnCluster), hm.pCfg.EnableProbeLog)
 		err = hm.saveMppToFile(cnCluster, hm.pCfg.JsonFile)
 		if err != nil {
-			checkLogger.Error(err.Error(), hm.pCfg.EnableLog)
+			checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 		}
 
 		var clusterState int32
 		if len(cnCluster) > 0 {
 			// update MPP
-			checkLogger.Info(fmt.Sprintf("CnCluster size is %d.", len(cnCluster)), hm.pCfg.EnableLog)
+			checkLogger.Info(fmt.Sprintf("CnCluster size is %d.", len(cnCluster)), hm.pCfg.EnableProbeLog)
 			clusterState = cnAlive
 			hm.mu.Lock()
 			hm.cnClusterInfo = cnCluster

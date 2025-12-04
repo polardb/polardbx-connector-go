@@ -72,8 +72,9 @@ func NewPolarDBXConfig() *PolarDBXConfig {
 		IgnoreVip:                             true,
 		EnableFollowerRead:                    -1,
 		LoadBalanceAlgorithm:                  random,
+		SlaveOnly:                             false,
 		EnableLog:                             true,
-		EnableProbeLog:                        false,
+		EnableProbeLog:                        true,
 		MysqlParams:                           make(map[string]string),
 		PropertiesSet:                         mapset.NewSet(),
 	}
@@ -103,6 +104,9 @@ func NewPolarDBXConfig() *PolarDBXConfig {
 	cfg.PropertiesSet.Add("enablefollowerread")
 	cfg.PropertiesSet.Add("loadbalancealgorithm")
 	cfg.PropertiesSet.Add("enablelog")
+	cfg.PropertiesSet.Add("enableprobelog")
+	cfg.PropertiesSet.Add("cngroup")
+	cfg.PropertiesSet.Add("backupcngroup")
 
 	return cfg
 }
@@ -138,6 +142,9 @@ func (pCfg *PolarDBXConfig) Clone() *PolarDBXConfig {
 		SlaveWeightThreshold:                  pCfg.SlaveWeightThreshold,
 		LoadBalanceAlgorithm:                  pCfg.LoadBalanceAlgorithm,
 		EnableLog:                             pCfg.EnableLog,
+		EnableProbeLog:                        pCfg.EnableProbeLog,
+		CnGroup:                               pCfg.CnGroup,
+		BackupCnGroup:                         pCfg.BackupCnGroup,
 	}
 
 	if pCfg.MysqlParams != nil {

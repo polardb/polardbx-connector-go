@@ -113,7 +113,11 @@ func recordDsn(dsn string, pCfg *PolarDBXConfig, hm *HaManager) error {
 		} else {
 			mysqlDsn = mysqlDsn + fmt.Sprintf("?driverVersion=%s", Version)
 		}
-		_, err = db.Exec(fmt.Sprintf(recordDsnQuery, mysqlDsn))
+		if hm.isDn {
+			_, err = db.Exec(fmt.Sprintf(recordDsnQuery, mysqlDsn))
+		} else {
+			_, err = db.Exec(fmt.Sprintf(recordDsnCnQuery, mysqlDsn))
+		}
 		if err != nil {
 			return err
 		}

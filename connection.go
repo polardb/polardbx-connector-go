@@ -17,9 +17,6 @@ func (c *polardbxConn) Prepare(query string) (driver.Stmt, error) {
 
 func (c *polardbxConn) Close() error {
 	err := c.mysqlConn.Close()
-	c.hm.mu.Lock()
-	defer c.hm.mu.Unlock()
-	c.hm.connCnt[c.connId]--
 	return err
 }
 
