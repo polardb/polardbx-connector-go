@@ -1837,7 +1837,7 @@ func runCNSimpleCase(t *testing.T, db *sql.DB) {
 }
 
 // testReadWriteConnection tests read-write connection by creating database and table (expected to succeed)
-func testReadWriteConnection(t *testing.T, dsn string, node string) {
+func testCNReadWriteConnection(t *testing.T, dsn string, node string) {
 	db, err := sql.Open("polardbx", dsn)
 	t.Logf("Test read write with dsn: %s", dsn)
 	if err != nil {
@@ -1896,7 +1896,7 @@ func testReadWriteConnection(t *testing.T, dsn string, node string) {
 }
 
 // testReadOnlyConnection tests read-only connection by attempting to create database and table (expected to fail)
-func testReadOnlyConnection(t *testing.T, dsn string, node string) {
+func testCNReadOnlyConnection(t *testing.T, dsn string, node string) {
 	db, err := sql.Open("polardbx", dsn)
 	t.Logf("Test read only with dsn: %s", dsn)
 	if err != nil {

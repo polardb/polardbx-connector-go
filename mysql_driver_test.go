@@ -246,7 +246,7 @@ func maybeSkip(t *testing.T, err error, skipErrno uint16) {
 	return
 }
 
-func TestEmptyQuery(t *testing.T) {
+func TestMySQLEmptyQuery(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		// just a comment, no query
 		rows := dbt.mustQuery("--")
@@ -258,7 +258,7 @@ func TestEmptyQuery(t *testing.T) {
 	})
 }
 
-func TestCRUD(t *testing.T) {
+func TestMySQLCRUD(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		// Create Table
 		dbt.mustExec("CREATE TABLE " + tbl + " (value BOOL)")
@@ -355,7 +355,7 @@ func TestCRUD(t *testing.T) {
 
 // TestNumbers test that selecting numeric columns.
 // Both of textRows and binaryRows should return same type and value.
-func TestNumbersToAny(t *testing.T) {
+func TestMySQLNumbersToAny(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (id INT PRIMARY KEY, b BOOL, i8 TINYINT, " +
 			"i16 SMALLINT, i32 INT, i64 BIGINT, f32 FLOAT, f64 DOUBLE, iu32 INT UNSIGNED)")
@@ -398,7 +398,7 @@ func TestNumbersToAny(t *testing.T) {
 	})
 }
 
-func TestMultiQuery(t *testing.T) {
+func TestMySQLMultiQuery(t *testing.T) {
 	runTestsWithMultiStatement(t, dsn, func(dbt *DBTest) {
 		// Create Table
 		dbt.mustExec("CREATE TABLE `test` (`id` int(11) NOT NULL, `value` int(11) NOT NULL) ")
@@ -443,7 +443,7 @@ func TestMultiQuery(t *testing.T) {
 	})
 }
 
-func TestInt(t *testing.T) {
+func TestMySQLInt(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [5]string{"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}
 		in := int64(42)
@@ -492,7 +492,7 @@ func TestInt(t *testing.T) {
 	})
 }
 
-func TestFloat32(t *testing.T) {
+func TestMySQLFloat32(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [2]string{"FLOAT", "DOUBLE"}
 		in := float32(42.23)
@@ -516,7 +516,7 @@ func TestFloat32(t *testing.T) {
 	})
 }
 
-func TestFloat64(t *testing.T) {
+func TestMySQLFloat64(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [2]string{"FLOAT", "DOUBLE"}
 		var expected float64 = 42.23
@@ -540,7 +540,7 @@ func TestFloat64(t *testing.T) {
 	})
 }
 
-func TestFloat64Placeholder(t *testing.T) {
+func TestMySQLFloat64Placeholder(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [2]string{"FLOAT", "DOUBLE"}
 		var expected float64 = 42.23
@@ -564,7 +564,7 @@ func TestFloat64Placeholder(t *testing.T) {
 	})
 }
 
-func TestString(t *testing.T) {
+func TestMySQLString(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [6]string{"CHAR(255)", "VARCHAR(255)", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"}
 		in := "κόσμε üöäßñóùéàâÿœ'îë Árvíztűrő いろはにほへとちりぬるを イロハニホヘト דג סקרן чащах  น่าฟังเอย"
@@ -613,7 +613,7 @@ func TestString(t *testing.T) {
 	})
 }
 
-func TestRawBytes(t *testing.T) {
+func TestMySQLRawBytes(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		v1 := []byte("aaa")
 		v2 := []byte("bbb")
@@ -642,7 +642,7 @@ func TestRawBytes(t *testing.T) {
 	})
 }
 
-func TestRawMessage(t *testing.T) {
+func TestMySQLRawMessage(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		v1 := json.RawMessage("{}")
 		v2 := json.RawMessage("[]")
@@ -673,7 +673,7 @@ func (tv testValuer) Value() (driver.Value, error) {
 	return tv.value, nil
 }
 
-func TestValuer(t *testing.T) {
+func TestMySQLValuer(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		in := testValuer{"a_value"}
 		var out string
@@ -706,7 +706,7 @@ func (tv testValuerWithValidation) Value() (driver.Value, error) {
 	return tv.value, nil
 }
 
-func TestValuerWithValidation(t *testing.T) {
+func TestMySQLValuerWithValidation(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		in := testValuerWithValidation{"a_value"}
 		var out string
@@ -853,7 +853,7 @@ func (t timeTest) run(dbt *DBTest, dbtype, tlayout string, mode timeMode) {
 	}
 }
 
-func TestDateTime(t *testing.T) {
+func TestMySQLDateTime(t *testing.T) {
 	afterTime := func(t time.Time, d string) time.Time {
 		dur, err := time.ParseDuration(d)
 		if err != nil {
@@ -970,7 +970,7 @@ func TestDateTime(t *testing.T) {
 	}
 }
 
-func TestTimestampMicros(t *testing.T) {
+func TestMySQLTimestampMicros(t *testing.T) {
 	format := "2006-01-02 15:04:05.999999"
 	f0 := format[:19]
 	f1 := format[:21]
@@ -1023,7 +1023,7 @@ func TestTimestampMicros(t *testing.T) {
 	})
 }
 
-func TestNULL(t *testing.T) {
+func TestMySQLNULL(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		nullStmt, err := dbt.db.Prepare("SELECT NULL")
 		if err != nil {
@@ -1174,7 +1174,7 @@ func TestNULL(t *testing.T) {
 	})
 }
 
-func TestUint64(t *testing.T) {
+func TestMySQLUint64(t *testing.T) {
 	const (
 		u0    = uint64(0)
 		uall  = ^u0
@@ -1217,7 +1217,7 @@ func TestUint64(t *testing.T) {
 	})
 }
 
-func TestLongData(t *testing.T) {
+func TestMySQLLongData(t *testing.T) {
 	runTests(t, dsn+"&maxAllowedPacket=0", func(dbt *DBTest) {
 		var maxAllowedPacketSize int
 		err := dbt.db.QueryRow("select @@max_allowed_packet").Scan(&maxAllowedPacketSize)
@@ -1280,7 +1280,7 @@ func TestLongData(t *testing.T) {
 }
 
 //
-//func TestLoadData(t *testing.T) {
+//func TestMySQLLoadData(t *testing.T) {
 //	runTests(t, dsn, func(dbt *DBTest) {
 //		verifyLoadDataResult := func() {
 //			rows, err := dbt.db.Query("SELECT * FROM test")
@@ -1380,7 +1380,7 @@ func TestLongData(t *testing.T) {
 //	})
 //}
 
-func TestFoundRows1(t *testing.T) {
+func TestMySQLFoundRows1(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (id INT NOT NULL ,data INT NOT NULL)")
 		dbt.mustExec("INSERT INTO " + tbl + " (id, data) VALUES (0, 0),(0, 0),(1, 0),(1, 0),(1, 1)")
@@ -1404,7 +1404,7 @@ func TestFoundRows1(t *testing.T) {
 	})
 }
 
-func TestFoundRows2(t *testing.T) {
+func TestMySQLFoundRows2(t *testing.T) {
 	runTestsParallel(t, dsn+"&clientFoundRows=true", func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (id INT NOT NULL ,data INT NOT NULL)")
 		dbt.mustExec("INSERT INTO " + tbl + " (id, data) VALUES (0, 0),(0, 0),(1, 0),(1, 0),(1, 1)")
@@ -1428,7 +1428,7 @@ func TestFoundRows2(t *testing.T) {
 	})
 }
 
-//func TestTLS(t *testing.T) {
+//func TestMySQLTLS(t *testing.T) {
 //	tlsTestReq := func(dbt *DBTest) {
 //		if err := dbt.db.Ping(); err != nil {
 //			if strings.Contains(err.Error(), "TLS requested but server does not support TLS") {
@@ -1470,7 +1470,7 @@ func TestFoundRows2(t *testing.T) {
 //	runTests(t, dsn+"&tls=custom-skip-verify", tlsTestReq)
 //}
 
-func TestReuseClosedConnection(t *testing.T) {
+func TestMySQLReuseClosedConnection(t *testing.T) {
 	// this test does not use sql.database, it uses the driver directly
 	if !available {
 		t.Skipf("MySQL server not running on %s", netAddr)
@@ -1508,7 +1508,7 @@ func TestReuseClosedConnection(t *testing.T) {
 	}
 }
 
-func TestCharset(t *testing.T) {
+func TestMySQLCharset(t *testing.T) {
 	if !available {
 		t.Skipf("MySQL server not running on %s", netAddr)
 	}
@@ -1543,7 +1543,7 @@ func TestCharset(t *testing.T) {
 	//mustSetCharset("charset=utf8mb4,ascii", "utf8mb4")
 }
 
-//func TestFailingCharset(t *testing.T) {
+//func TestMySQLFailingCharset(t *testing.T) {
 //	runTestsParallel(t, dsn+"&charset=none", func(dbt *DBTest, _ string) {
 //		// run query to really establish connection...
 //		_, err := dbt.db.Exec("SELECT 1")
@@ -1554,7 +1554,7 @@ func TestCharset(t *testing.T) {
 //	})
 //}
 
-//func TestCollation(t *testing.T) {
+//func TestMySQLCollation(t *testing.T) {
 //	if !available {
 //		t.Skipf("MySQL server not running on %s", netAddr)
 //	}
@@ -1589,7 +1589,7 @@ func TestCharset(t *testing.T) {
 //	}
 //}
 
-func TestColumnsWithAlias(t *testing.T) {
+func TestMySQLColumnsWithAlias(t *testing.T) {
 	runTestsParallel(t, dsn+"&columnsWithAlias=true", func(dbt *DBTest, _ string) {
 		rows := dbt.mustQuery("SELECT 1 AS A")
 		defer rows.Close()
@@ -1613,7 +1613,7 @@ func TestColumnsWithAlias(t *testing.T) {
 	})
 }
 
-func TestRawBytesResultExceedsBuffer(t *testing.T) {
+func TestMySQLRawBytesResultExceedsBuffer(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		// defaultBufSize from buffer.go
 		expected := strings.Repeat("abc", 4096)
@@ -1631,7 +1631,7 @@ func TestRawBytesResultExceedsBuffer(t *testing.T) {
 	})
 }
 
-func TestTimezoneConversion(t *testing.T) {
+func TestMySQLTimezoneConversion(t *testing.T) {
 	zones := []string{"UTC", "Asia/Shanghai", "Local"}
 
 	// Regression test for timezone handling
@@ -1672,7 +1672,7 @@ func TestTimezoneConversion(t *testing.T) {
 
 // Special cases
 
-func TestRowsClose(t *testing.T) {
+func TestMySQLRowsClose(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		rows, err := dbt.db.Query("SELECT 1")
 		if err != nil {
@@ -1697,7 +1697,7 @@ func TestRowsClose(t *testing.T) {
 
 // dangling statements
 // http://code.google.com/p/go/issues/detail?id=3865
-func TestCloseStmtBeforeRows(t *testing.T) {
+func TestMySQLCloseStmtBeforeRows(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		stmt, err := dbt.db.Prepare("SELECT 1")
 		if err != nil {
@@ -1738,7 +1738,7 @@ func TestCloseStmtBeforeRows(t *testing.T) {
 
 // It is valid to have multiple Rows for the same Stmt
 // http://code.google.com/p/go/issues/detail?id=3734
-func TestStmtMultiRows(t *testing.T) {
+func TestMySQLStmtMultiRows(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		stmt, err := dbt.db.Prepare("SELECT 1 UNION SELECT 0")
 		if err != nil {
@@ -1853,7 +1853,7 @@ func TestStmtMultiRows(t *testing.T) {
 // * more than 32 NULL parameters (issue 209)
 // * more parameters than fit into the buffer (issue 201)
 // * parameters * 64 > max_allowed_packet (issue 734)
-func TestPreparedManyCols(t *testing.T) {
+func TestMySQLPreparedManyCols(t *testing.T) {
 	numParams := 65535
 	runTests(t, dsn, func(dbt *DBTest) {
 		query := "SELECT ?" + strings.Repeat(",?", numParams-1)
@@ -1884,7 +1884,7 @@ func TestPreparedManyCols(t *testing.T) {
 	})
 }
 
-func TestConcurrent(t *testing.T) {
+func TestMySQLConcurrent(t *testing.T) {
 	if enabled, _ := readBool(os.Getenv("MYSQL_TEST_CONCURRENT")); !enabled {
 		t.Skip("MYSQL_TEST_CONCURRENT env var not set")
 	}
@@ -1960,7 +1960,7 @@ func TestConcurrent(t *testing.T) {
 	})
 }
 
-//func testDialError(t *testing.T, dialErr error, expectErr error) {
+//func testMySQLDialError(t *testing.T, dialErr error, expectErr error) {
 //	RegisterDialContext("mydial", func(ctx context.Context, addr string) (net.Conn, error) {
 //		return nil, dialErr
 //	})
@@ -1977,23 +1977,23 @@ func TestConcurrent(t *testing.T) {
 //	}
 //}
 
-//func TestDialUnknownError(t *testing.T) {
+//func TestMySQLDialUnknownError(t *testing.T) {
 //	testErr := fmt.Errorf("test")
 //	testDialError(t, testErr, testErr)
 //}
 //
-//func TestDialNonRetryableNetErr(t *testing.T) {
+//func TestMySQLDialNonRetryableNetErr(t *testing.T) {
 //	testErr := netErrorMock{}
 //	testDialError(t, testErr, testErr)
 //}
 //
-//func TestDialTemporaryNetErr(t *testing.T) {
+//func TestMySQLDialTemporaryNetErr(t *testing.T) {
 //	testErr := netErrorMock{temporary: true}
 //	testDialError(t, testErr, testErr)
 //}
 
 //// Tests custom dial functions
-//func TestCustomDial(t *testing.T) {
+//func TestMySQLCustomDial(t *testing.T) {
 //	if !available {
 //		t.Skipf("MySQL server not running on %s", netAddr)
 //	}
@@ -2015,7 +2015,7 @@ func TestConcurrent(t *testing.T) {
 //	}
 //}
 //
-//func TestBeforeConnect(t *testing.T) {
+//func TestMySQLBeforeConnect(t *testing.T) {
 //	if !available {
 //		t.Skipf("MySQL server not running on %s", netAddr)
 //	}
@@ -2049,7 +2049,7 @@ func TestConcurrent(t *testing.T) {
 //	}
 //}
 
-func TestSQLInjection(t *testing.T) {
+func TestMySQLSQLInjection(t *testing.T) {
 	createTest := func(arg string) func(dbt *DBTest) {
 		return func(dbt *DBTest) {
 			dbt.mustExec("CREATE TABLE test (v INTEGER)")
@@ -2080,7 +2080,7 @@ func TestSQLInjection(t *testing.T) {
 }
 
 // Test if inserted data is correctly retrieved after being escaped
-func TestInsertRetrieveEscapedData(t *testing.T) {
+func TestMySQLInsertRetrieveEscapedData(t *testing.T) {
 	testData := func(dbt *DBTest) {
 		dbt.mustExec("CREATE TABLE test (v VARCHAR(255))")
 
@@ -2156,7 +2156,7 @@ func TestInsertRetrieveEscapedData(t *testing.T) {
 //}
 
 // See Issue #422
-func TestInterruptBySignal(t *testing.T) {
+func TestMySQLInterruptBySignal(t *testing.T) {
 	runTestsWithMultiStatement(t, dsn, func(dbt *DBTest) {
 		dbt.mustExec(`
 			DROP PROCEDURE IF EXISTS test_signal;
@@ -2205,7 +2205,7 @@ func TestInterruptBySignal(t *testing.T) {
 }
 
 //
-//func TestColumnsReusesSlice(t *testing.T) {
+//func TestMySQLColumnsReusesSlice(t *testing.T) {
 //	rows := mysqlRows{
 //		rs: resultSet{
 //			columns: []mysqlField{
@@ -2238,7 +2238,7 @@ func TestInterruptBySignal(t *testing.T) {
 //	}
 //}
 
-func TestRejectReadOnly(t *testing.T) {
+func TestMySQLRejectReadOnly(t *testing.T) {
 	runTests(t, dsn, func(dbt *DBTest) {
 		// Create Table
 		dbt.mustExec("CREATE TABLE test (value BOOL)")
@@ -2272,7 +2272,7 @@ func TestRejectReadOnly(t *testing.T) {
 }
 
 //
-//func TestPing(t *testing.T) {
+//func TestMySQLPing(t *testing.T) {
 //	ctx := context.Background()
 //	runTests(t, dsn, func(dbt *DBTest) {
 //		if err := dbt.db.Ping(); err != nil {
@@ -2321,7 +2321,7 @@ func TestRejectReadOnly(t *testing.T) {
 //}
 
 // See Issue #799
-func TestEmptyPassword(t *testing.T) {
+func TestMySQLEmptyPassword(t *testing.T) {
 	if !available {
 		t.Skipf("MySQL server not running on %s", netAddr)
 	}
@@ -2380,7 +2380,7 @@ var (
 //	_ driver.RowsNextResultSet              = &textRows{}
 //)
 
-func TestMultiResultSet(t *testing.T) {
+func TestMySQLMultiResultSet(t *testing.T) {
 	type result struct {
 		values  [][]int
 		columns []string
@@ -2520,7 +2520,7 @@ func TestMultiResultSet(t *testing.T) {
 	})
 }
 
-func TestMultiResultSetNoSelect(t *testing.T) {
+func TestMySQLMultiResultSetNoSelect(t *testing.T) {
 	runTestsWithMultiStatement(t, dsn, func(dbt *DBTest) {
 		rows := dbt.mustQuery("DO 1; DO 2;")
 		defer rows.Close()
@@ -2540,7 +2540,7 @@ func TestMultiResultSetNoSelect(t *testing.T) {
 }
 
 //
-//func TestExecMultipleResults(t *testing.T) {
+//func TestMySQLExecMultipleResults(t *testing.T) {
 //	ctx := context.Background()
 //	runTestsWithMultiStatement(t, dsn, func(dbt *DBTest) {
 //		dbt.mustExec(`
@@ -2579,7 +2579,7 @@ func TestMultiResultSetNoSelect(t *testing.T) {
 
 // tests if rows are set in a proper state if some results were ignored before
 // calling rows.NextResultSet.
-func TestSkipResults(t *testing.T) {
+func TestMySQLSkipResults(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		rows := dbt.mustQuery("SELECT 1, 2")
 		defer rows.Close()
@@ -2599,7 +2599,7 @@ func TestSkipResults(t *testing.T) {
 }
 
 //
-//func TestQueryMultipleResults(t *testing.T) {
+//func TestMySQLQueryMultipleResults(t *testing.T) {
 //	ctx := context.Background()
 //	runTestsWithMultiStatement(t, dsn, func(dbt *DBTest) {
 //		dbt.mustExec(`
@@ -2635,7 +2635,7 @@ func TestSkipResults(t *testing.T) {
 //	})
 //}
 
-func TestPingContext(t *testing.T) {
+func TestMySQLPingContext(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -2645,7 +2645,7 @@ func TestPingContext(t *testing.T) {
 	})
 }
 
-func TestContextCancelExec(t *testing.T) {
+func TestMySQLContextCancelExec(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2691,7 +2691,7 @@ func TestContextCancelExec(t *testing.T) {
 	})
 }
 
-func TestContextCancelQuery(t *testing.T) {
+func TestMySQLContextCancelQuery(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2735,7 +2735,7 @@ func TestContextCancelQuery(t *testing.T) {
 	})
 }
 
-func TestContextCancelQueryRow(t *testing.T) {
+func TestMySQLContextCancelQueryRow(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		dbt.mustExec("INSERT INTO " + tbl + " VALUES (1), (2), (3)")
@@ -2768,7 +2768,7 @@ func TestContextCancelQueryRow(t *testing.T) {
 	})
 }
 
-func TestContextCancelPrepare(t *testing.T) {
+func TestMySQLContextCancelPrepare(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, _ string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -2778,7 +2778,7 @@ func TestContextCancelPrepare(t *testing.T) {
 	})
 }
 
-func TestContextCancelStmtExec(t *testing.T) {
+func TestMySQLContextCancelStmtExec(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2813,7 +2813,7 @@ func TestContextCancelStmtExec(t *testing.T) {
 	})
 }
 
-func TestContextCancelStmtQuery(t *testing.T) {
+func TestMySQLContextCancelStmtQuery(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2848,7 +2848,7 @@ func TestContextCancelStmtQuery(t *testing.T) {
 	})
 }
 
-func TestContextCancelBegin(t *testing.T) {
+func TestMySQLContextCancelBegin(t *testing.T) {
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		t.Skip(`FIXME: it sometime fails with "expected driver.ErrBadConn, got sql: connection is already closed" on windows and macOS`)
 	}
@@ -2908,7 +2908,7 @@ func TestContextCancelBegin(t *testing.T) {
 	})
 }
 
-func TestContextBeginIsolationLevel(t *testing.T) {
+func TestMySQLContextBeginIsolationLevel(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2961,7 +2961,7 @@ func TestContextBeginIsolationLevel(t *testing.T) {
 }
 
 //
-//func TestContextBeginReadOnly(t *testing.T) {
+//func TestMySQLContextBeginReadOnly(t *testing.T) {
 //	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 //		dbt.mustExec("CREATE TABLE " + tbl + " (v INTEGER)")
 //		ctx, cancel := context.WithCancel(context.Background())
@@ -2999,7 +2999,7 @@ func TestContextBeginIsolationLevel(t *testing.T) {
 //	})
 //}
 //
-//func TestRowsColumnTypes(t *testing.T) {
+//func TestMySQLRowsColumnTypes(t *testing.T) {
 //	niNULL := sql.NullInt64{Int64: 0, Valid: false}
 //	ni0 := sql.NullInt64{Int64: 0, Valid: true}
 //	ni1 := sql.NullInt64{Int64: 1, Valid: true}
@@ -3221,7 +3221,7 @@ func TestContextBeginIsolationLevel(t *testing.T) {
 //	})
 //}
 
-func TestValuerWithValueReceiverGivenNilValue(t *testing.T) {
+func TestMySQLValuerWithValueReceiverGivenNilValue(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		dbt.mustExec("CREATE TABLE " + tbl + " (value VARCHAR(255))")
 		dbt.db.Exec("INSERT INTO "+tbl+" VALUES (?)", (*testValuer)(nil))
@@ -3234,7 +3234,7 @@ func TestValuerWithValueReceiverGivenNilValue(t *testing.T) {
 // proposed in https://github.com/golang/go/issues/23519. Here we're explicitly using
 // `sql.RawBytes` to check the contents of our internal buffers are not modified after an implicit
 // call to `Rows.Close`, so Context cancellation should **not** invalidate the backing buffers.
-func TestRawBytesAreNotModified(t *testing.T) {
+func TestMySQLRawBytesAreNotModified(t *testing.T) {
 	const blob = "abcdefghijklmnop"
 	const contextRaceIterations = 20
 	const blobSize = 4096 * 3 / 4 // Second row overwrites first row.
@@ -3290,7 +3290,7 @@ var _ driver.DriverContext = &PolarDBxDriver{}
 type dialCtxKey struct{}
 
 //
-//func TestConnectorObeysDialTimeouts(t *testing.T) {
+//func TestMySQLConnectorObeysDialTimeouts(t *testing.T) {
 //	if !available {
 //		t.Skipf("MySQL server not running on %s", netAddr)
 //	}
@@ -3331,7 +3331,7 @@ type dialCtxKey struct{}
 //	return mycnf
 //}
 //
-//func TestNewConnector(t *testing.T) {
+//func TestMySQLNewConnector(t *testing.T) {
 //	mycnf := configForTests(t)
 //	conn, err := NewConnector(mycnf)
 //	if err != nil {
@@ -3368,7 +3368,7 @@ func (cw *connectorHijack) Connect(ctx context.Context) (driver.Conn, error) {
 }
 
 //
-//func TestConnectorTimeoutsDuringOpen(t *testing.T) {
+//func TestMySQLConnectorTimeoutsDuringOpen(t *testing.T) {
 //	RegisterDialContext("slowconn", func(ctx context.Context, addr string) (net.Conn, error) {
 //		var d net.Dialer
 //		conn, err := d.DialContext(ctx, prot, addr)
@@ -3415,7 +3415,7 @@ func (d *dummyConnection) Close() error {
 }
 
 //
-//func TestConnectorTimeoutsWatchCancel(t *testing.T) {
+//func TestMySQLConnectorTimeoutsWatchCancel(t *testing.T) {
 //	var (
 //		cancel  func()           // Used to cancel the context just after connecting.
 //		created *dummyConnection // The created connection.
@@ -3458,7 +3458,7 @@ func (d *dummyConnection) Close() error {
 //}
 
 //
-//func TestConnectionAttributes(t *testing.T) {
+//func TestMySQLConnectionAttributes(t *testing.T) {
 //	if !available {
 //		t.Skipf("MySQL server not running on %s", netAddr)
 //	}
@@ -3528,7 +3528,7 @@ func (d *dummyConnection) Close() error {
 //	}
 //}
 
-func TestErrorInMultiResult(t *testing.T) {
+func TestMySQLErrorInMultiResult(t *testing.T) {
 	if !available {
 		t.Skipf("MySQL server not running on %s", netAddr)
 	}
@@ -3572,7 +3572,7 @@ func runCallCommand(dbt *DBTest, query, name string) {
 	}
 }
 
-//func TestIssue1567(t *testing.T) {
+//func TestMySQLIssue1567(t *testing.T) {
 //	// enable TLS.
 //	runTests(t, dsn+"&tls=skip-verify", func(dbt *DBTest) {
 //		var max int

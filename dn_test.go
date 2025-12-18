@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestSimpleCase(t *testing.T) {
+func TestDNSimpleCase(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -31,7 +31,7 @@ func TestSimpleCase(t *testing.T) {
 	runSimpleCase(t, db)
 }
 
-func TestClusterId(t *testing.T) {
+func TestDNClusterId(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -115,7 +115,7 @@ func TestClusterId(t *testing.T) {
 	})
 }
 
-func TestSlaveRead(t *testing.T) {
+func TestDNSlaveRead(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -272,7 +272,7 @@ func TestSlaveRead(t *testing.T) {
 	t.Log("TestSlaveRead completed successfully!")
 }
 
-func TestApplyDelayThreshold(t *testing.T) {
+func TestDNApplyDelayThreshold(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -436,7 +436,7 @@ func TestApplyDelayThreshold(t *testing.T) {
 	t.Log("TestApplyDelayThreshold completed!")
 }
 
-func TestSlaveWeightThreshold(t *testing.T) {
+func TestDNSlaveWeightThreshold(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -485,7 +485,7 @@ func TestSlaveWeightThreshold(t *testing.T) {
 	}
 }
 
-func TestDirectMode(t *testing.T) {
+func TestDNDirectMode(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -585,7 +585,7 @@ func TestDirectMode(t *testing.T) {
 	}
 }
 
-func TestRecordJdbcUrl(t *testing.T) {
+func TestDNRecordJdbcUrl(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -625,7 +625,7 @@ func TestRecordJdbcUrl(t *testing.T) {
 	}
 }
 
-func TestIgnoreVip(t *testing.T) {
+func TestDNIgnoreVip(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
@@ -650,7 +650,7 @@ func TestIgnoreVip(t *testing.T) {
 	runSimpleCase(t, db)
 }
 
-func TestSameClusterId(t *testing.T) {
+func TestDNSameClusterId(t *testing.T) {
 	if *testType != "dn" {
 		t.Skip("Skip non-dn test")
 	}
