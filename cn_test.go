@@ -585,7 +585,7 @@ func TestCNDirectMode(t *testing.T) {
 			t.Logf("Creating read-write connection to %s", info.node)
 
 			// Test read-write connection
-			testReadWriteConnection(t, directDsn, info.node)
+			testCNReadWriteConnection(t, directDsn, info.node)
 		} else if strings.EqualFold(info.role, "R") {
 			// For read role, create read-only connection
 			directDsn = fmt.Sprintf("%s:%s@tcp(%s)/?charset=utf8mb4&parseTime=True&enableLog=%s&enableProbeLog=%s"+
@@ -594,7 +594,7 @@ func TestCNDirectMode(t *testing.T) {
 			t.Logf("Creating read-only connection to %s", info.node)
 
 			// Test read-only connection
-			testReadOnlyConnection(t, directDsn, info.node)
+			testCNReadOnlyConnection(t, directDsn, info.node)
 		} else {
 			t.Logf("Unknown role %s for node %s, skipping", info.role, info.node)
 		}
@@ -1836,7 +1836,7 @@ func runCNSimpleCase(t *testing.T, db *sql.DB) {
 	t.Log("Simple case test scenario completed successfully")
 }
 
-// testReadWriteConnection tests read-write connection by creating database and table (expected to succeed)
+// testCNReadWriteConnection tests read-write connection by creating database and table (expected to succeed)
 func testCNReadWriteConnection(t *testing.T, dsn string, node string) {
 	db, err := sql.Open("polardbx", dsn)
 	t.Logf("Test read write with dsn: %s", dsn)
@@ -1895,7 +1895,7 @@ func testCNReadWriteConnection(t *testing.T, dsn string, node string) {
 	t.Logf("Successfully created database and table on read-write node %s", node)
 }
 
-// testReadOnlyConnection tests read-only connection by attempting to create database and table (expected to fail)
+// testCNReadOnlyConnection tests read-only connection by attempting to create database and table (expected to fail)
 func testCNReadOnlyConnection(t *testing.T, dsn string, node string) {
 	db, err := sql.Open("polardbx", dsn)
 	t.Logf("Test read only with dsn: %s", dsn)
