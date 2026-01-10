@@ -3,7 +3,6 @@ package polardbx
 import (
 	"database/sql"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"reflect"
@@ -26,7 +25,6 @@ var (
 	passwd2                    = flag.String("passwd2", "", "Test Password.")
 	loadBalanceAlgorithm       = flag.String("loadBalanceAlgorithm", "random", "Load balance algorithm.")
 	testType                   = flag.String("testType", "dn", "Test type.")
-	dbname                     = flag.String("dbname", "test_go_db", "Test database name.")
 )
 
 func TestMain(m *testing.M) {
@@ -35,12 +33,6 @@ func TestMain(m *testing.M) {
 		log.Print("Usage of integration tests:\n")
 		flag.PrintDefaults()
 	}
-	tmp := strings.Split(*addr, ":")
-	port = tmp[len(tmp)-1]
-	netAddr = fmt.Sprintf("%s(%s)", port, *addr)
-	dsn = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&enableLog=%s&enableProbeLog=%s",
-		*user, *passwd, *addr, *dbname, *enableLog, *enableProbeLog)
-	available = true
 	os.Exit(m.Run())
 }
 
