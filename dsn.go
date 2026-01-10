@@ -375,9 +375,16 @@ func ParsePolarDBXDSN(dsn string) (pCfg *PolarDBXConfig, err error) {
 	return
 }
 
+func cut(s, sep string) (before, after string, found bool) {
+	if i := strings.Index(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
+}
+
 func parsePolarDBXDSNParams(pCfg *PolarDBXConfig, params string) error {
 	for _, v := range strings.Split(params, "&") {
-		key, value, found := strings.Cut(v, "=")
+		key, value, found := cut(v, "=")
 		if !found {
 			continue
 		}
