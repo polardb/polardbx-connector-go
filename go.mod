@@ -1,6 +1,6 @@
 module github.com/polardb/polardbx-connector-go
 
-go 1.24
+go 1.21.0
 
 require (
 	github.com/deckarep/golang-set v1.8.0

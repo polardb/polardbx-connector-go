@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/petermattis/goid"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -152,7 +153,7 @@ func (hm *HaManager) saveDnToFile(nodes []*XClusterNodeBasic, filename string) e
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(filename, data, 0644)
+	err = ioutil.WriteFile(filename, data, 0644)
 	if err != nil {
 		return err
 	}
@@ -161,7 +162,7 @@ func (hm *HaManager) saveDnToFile(nodes []*XClusterNodeBasic, filename string) e
 }
 
 func (hm *HaManager) loadDnFromFile(filename string) ([]*XClusterNodeBasic, error) {
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +182,7 @@ func (hm *HaManager) saveMppToFile(mpp []*MppInfo, filename string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(filename, data, 0644)
+	err = ioutil.WriteFile(filename, data, 0644)
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func (hm *HaManager) saveMppToFile(mpp []*MppInfo, filename string) error {
 }
 
 func (hm *HaManager) loadMppFromFile(filename string) ([]*MppInfo, error) {
-	data, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -936,7 +937,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 	applyDelayThreshold, slaveWeightThreshold int32, loadBalanceAlgorithm string) (string, error) {
 	_, isFirstTime := hm.getDnLeader()
 	if isFirstTime {
-		timeout = max(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
+		timeout = maxInt32(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
 	}
 	mainLogger.Debug(fmt.Sprintf("Getting node with timeout: %d ms.", timeout), hm.pCfg.EnableLog)
 	timeoutNanos := time.Now().UnixNano() + int64(timeout)*1000000
@@ -985,7 +986,7 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 		hm.mu.RUnlock()
 
 		select {
-		case <-time.After(max(0, time.Duration(sleepMillis)*time.Millisecond)):
+		case <-time.After(maxDuration(0, time.Duration(sleepMillis)*time.Millisecond)):
 			checkLogger.Debug(fmt.Sprintf("[%d]Waiting leader time out, sleep milli: %d, retry getting leader.", goid.Get(), sleepMillis), hm.pCfg.EnableProbeLog)
 		case <-localChan:
 			checkLogger.Debug("Leader has been updated, retry getting leader.", hm.pCfg.EnableProbeLog)
@@ -1003,7 +1004,7 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 		slaveRead, instanceName, mppRole, loadBalanceAlgorithm, cnGroup, backupCnGroup) != ""
 	hm.mu.Unlock()
 	if isFirstTime {
-		timeout = max(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
+		timeout = maxInt32(timeout, (hm.pCfg.HaCheckIntervalMillis+hm.pCfg.HaCheckSocketTimeoutMillis)*3)
 	}
 	timeoutNanos := time.Now().UnixNano() + int64(timeout)*1000000
 	for {
@@ -1037,7 +1038,7 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 		sleepMillis := (timeoutNanos - nowNanos) / 1000000
 
 		select {
-		case <-time.After(max(0, time.Duration(sleepMillis)*time.Millisecond)):
+		case <-time.After(maxDuration(0, time.Duration(sleepMillis)*time.Millisecond)):
 			mainLogger.Debug(fmt.Sprintf("Waiting cn time out: %d ms, retry getting cn.", timeout), hm.pCfg.EnableLog)
 		case <-localChan:
 			mainLogger.Debug("Cluster has been updated, retry getting cn.", hm.pCfg.EnableLog)
@@ -1355,8 +1356,56 @@ func (hm *HaManager) CnHaChecker() {
 		if clusterState == cnAlive {
 			time.Sleep(time.Duration(hm.pCfg.HaCheckIntervalMillis) * time.Millisecond)
 		} else if clusterState == cnLost {
-			time.Sleep(time.Duration(min(500, hm.pCfg.HaCheckIntervalMillis)) * time.Millisecond)
+			time.Sleep(time.Duration(minInt32(500, hm.pCfg.HaCheckIntervalMillis)) * time.Millisecond)
 		}
 
 	}
+}
+
+// min returns the minimum of two int values
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max returns the maximum of two int values
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// minInt32 returns the minimum of two int32 values
+func minInt32(a, b int32) int32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maxInt32 returns the maximum of two int32 values
+func maxInt32(a, b int32) int32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// minDuration returns the minimum of two time.Duration values
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maxDuration returns the maximum of two time.Duration values
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }
