@@ -282,15 +282,15 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 		if pCfg.JsonFile == "" {
 			if isDn {
 				if useIPv6 {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv6.json", clusterId, sanitizeAddr(pCfg.Addr)))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv6-go.json", clusterId, sanitizeAddr(pCfg.Addr)))
 				} else {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv4.json", clusterId, sanitizeAddr(pCfg.Addr)))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv4-go.json", clusterId, sanitizeAddr(pCfg.Addr)))
 				}
 			} else {
 				if useIPv6 {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%s-IPv6.json", pCfg.Addr))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv6-go.json", pCfg.Addr))
 				} else {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("XCluster-%s-IPv4.json", pCfg.Addr))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv4-go.json", pCfg.Addr))
 				}
 			}
 			pCfg.JsonFile = jsonFile
