@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -1165,4 +1168,67 @@ func runSimpleCase(t *testing.T, db *sql.DB) {
 	}
 
 	t.Log("Simple case test scenario completed successfully")
+}
+
+func TestDNWrongJsonFile(t *testing.T) {
+	if *testType != "dn" {
+		t.Skip("Skip non-dn test")
+	}
+
+	clusterId := func() int {
+		dsn := fmt.Sprintf("%s:%s@tcp(%s,10.0.0.0:3306)/?charset=utf8mb4&parseTime=True&enableLog=%s&enableProbeLog=%s",
+			*user, *passwd, *addr, *enableLog, *enableProbeLog)
+
+		t.Logf("dsn: %s", dsn)
+		db, err := sql.Open("polardbx", dsn)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer func() {
+			if err := db.Close(); err != nil {
+				t.Errorf("Failed to close database: %v", err)
+			}
+		}()
+
+		_, err = db.Query("select 1")
+		if err != nil {
+			t.Fatalf("Failed to execute select 1: %v", err)
+		}
+
+		var clusterId int
+		err = db.QueryRow("select @@cluster_id").Scan(&clusterId)
+		if err != nil {
+			t.Fatalf("Failed to get cluster id on A: %v", err)
+		}
+		return clusterId
+	}()
+
+	tmpDir := os.TempDir()
+	jsonFile := filepath.Join(tmpDir, fmt.Sprintf("XCluster-%d-%s-IPv4-go.json", clusterId, sanitizeAddr(*addr)))
+	t.Logf("jsonFile: %s", jsonFile)
+
+	err := ioutil.WriteFile(jsonFile, []byte("123123"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	t.Logf("Wrote file with wrong content")
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/?charset=utf8mb4&parseTime=True&enableLog=%s&enableProbeLog=%s",
+		*user, *passwd, *addr, *enableLog, *enableProbeLog)
+
+	db, err := sql.Open("polardbx", dsn)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
+
+	_, err = db.Query("select 1")
+	if err != nil {
+		t.Fatalf("Failed to execute select 1: %v", err)
+	}
+
 }
