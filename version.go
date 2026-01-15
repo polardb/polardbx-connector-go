@@ -1,3 +1,3 @@
 package polardbx
 
-var Version = "v1.0.3-15"
+var Version = "v1.0.4-15"
