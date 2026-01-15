@@ -108,9 +108,15 @@ func getClusterId(pCfg *PolarDBXConfig) (clusterId int64, isDn bool, err error) 
 			var basicInfo BasicInFoQuery
 			err = db.QueryRow(basicInfoQuery).Scan(&basicInfo.Version, &basicInfo.ClusterID, &basicInfo.Port)
 			if err != nil {
-				lastErr = err
-				checkLogger.ErrorWithStack(err, pCfg.EnableProbeLog)
-				return // Try next address
+				if strings.Contains(err.Error(), "i/o timeout") {
+					checkLogger.Warn("Get cluster id i/o timeout, retry.", pCfg.EnableProbeLog)
+					err = db.QueryRow(basicInfoQuery).Scan(&basicInfo.Version, &basicInfo.ClusterID, &basicInfo.Port)
+				}
+				if err != nil {
+					lastErr = err
+					checkLogger.ErrorWithStack(err, pCfg.EnableProbeLog)
+					return // Try next address
+				}
 			}
 
 			if strings.Contains(strings.ToUpper(basicInfo.Version), "-TDDL-") {
@@ -288,9 +294,9 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 				}
 			} else {
 				if useIPv6 {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv6-go.json", pCfg.Addr))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv6-go.json", sanitizeAddr(pCfg.Addr)))
 				} else {
-					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv4-go.json", pCfg.Addr))
+					jsonFile = filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv4-go.json", sanitizeAddr(pCfg.Addr)))
 				}
 			}
 			pCfg.JsonFile = jsonFile
@@ -298,30 +304,9 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 			jsonFile = pCfg.JsonFile
 		}
 
-		// if file not exists, create a new file
-		file, err := os.Open(jsonFile)
+		err = CreateFileIfNotExists(jsonFile)
 		if err != nil {
-			if os.IsNotExist(err) {
-				nFile, err := os.Create(jsonFile)
-				if err != nil {
-					return nil, err
-				}
-				defer func(nFile *os.File) {
-					err := nFile.Close()
-					if err != nil {
-						log.Printf("Failed to close file: %v", err)
-					}
-				}(nFile)
-			} else {
-				return nil, err
-			}
-		} else {
-			defer func(file *os.File) {
-				err := file.Close()
-				if err != nil {
-					log.Printf("Failed to close file: %v", err)
-				}
-			}(file)
+			return nil, err
 		}
 
 		tag = genClusterTag(clusterId, pCfg.Addr)
@@ -368,6 +353,35 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 	return manager, nil
 }
 
+func CreateFileIfNotExists(jsonFile string) error {
+	// if file not exists, create a new file
+	file, err := os.Open(jsonFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			nFile, err := os.Create(jsonFile)
+			if err != nil {
+				return err
+			}
+			defer func(nFile *os.File) {
+				err := nFile.Close()
+				if err != nil {
+					log.Printf("Failed to close file: %v", err)
+				}
+			}(nFile)
+		} else {
+			return err
+		}
+	} else {
+		defer func(file *os.File) {
+			err := file.Close()
+			if err != nil {
+				log.Printf("Failed to close file: %v", err)
+			}
+		}(file)
+	}
+	return nil
+}
+
 func (hm *HaManager) getConnectionAddresses() (mapset.Set, error) {
 	// get addresses from json file (previous node info) and leaderDsn addresses
 	hm.mu.RLock()
@@ -383,22 +397,31 @@ func (hm *HaManager) getConnectionAddresses() (mapset.Set, error) {
 		} else {
 			addressesFromJson, err = hm.loadMppFromFile(jsonFile)
 		}
+		if err != nil {
+			mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
+			err = os.Remove(jsonFile)
+			if err != nil {
+				mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
+				err = nil
+			}
+			err = CreateFileIfNotExists(jsonFile)
+			if err != nil {
+				mainLogger.ErrorWithStack(err, hm.pCfg.EnableLog)
+				return nil, err
+			}
+		}
 	}
 
-	if err != nil {
-		return nil, err
-	} else {
-		if hm.isDn {
-			for _, node := range addressesFromJson.([]*XClusterNodeBasic) {
-				if strings.EqualFold(node.Role, "Leader") || strings.EqualFold(node.Role, "Follower") {
-					probedAddresses.Add(node.Tag)
-				}
+	if hm.isDn {
+		for _, node := range addressesFromJson.([]*XClusterNodeBasic) {
+			if strings.EqualFold(node.Role, "Leader") || strings.EqualFold(node.Role, "Follower") {
+				probedAddresses.Add(node.Tag)
 			}
-		} else {
-			for _, node := range addressesFromJson.([]*MppInfo) {
-				if strings.EqualFold(node.Role, "Leader") || strings.EqualFold(node.Role, "Follower") {
-					probedAddresses.Add(node.Tag)
-				}
+		}
+	} else {
+		for _, node := range addressesFromJson.([]*MppInfo) {
+			if strings.EqualFold(node.Role, "Leader") || strings.EqualFold(node.Role, "Follower") {
+				probedAddresses.Add(node.Tag)
 			}
 		}
 	}
@@ -906,7 +929,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	isTransferring, _ := readBool(value)
 
 	if isTransferring {
-		checkLogger.Debug(fmt.Sprintf("The cluster is under leader transfer, current leader: %s.", leader.Tag), hm.pCfg.EnableProbeLog)
+		checkLogger.Info(fmt.Sprintf("The cluster is under leader transfer, current leader: %s.", leader.Tag), hm.pCfg.EnableProbeLog)
 		hm.mu.Lock()
 		hm.dnClusterInfo.LeaderInfo = nil
 		hm.dnClusterInfo.LongConnection = nil
@@ -920,7 +943,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
 	}
 
-	checkLogger.Debug(fmt.Sprintf("Updating leader to %s.", leader.Tag), hm.pCfg.EnableProbeLog)
+	checkLogger.Info(fmt.Sprintf("Updating leader to %s.", leader.Tag), hm.pCfg.EnableProbeLog)
 	hm.mu.Lock()
 	hm.dnClusterInfo.LeaderInfo = leader
 	hm.dnClusterInfo.LongConnection = conn
@@ -987,9 +1010,9 @@ func (hm *HaManager) getAvailableDnWithWait(timeout int32, slaveOnly bool,
 
 		select {
 		case <-time.After(maxDuration(0, time.Duration(sleepMillis)*time.Millisecond)):
-			checkLogger.Debug(fmt.Sprintf("[%d]Waiting leader time out, sleep milli: %d, retry getting leader.", goid.Get(), sleepMillis), hm.pCfg.EnableProbeLog)
+			checkLogger.Info(fmt.Sprintf("[%d]Waiting leader time out, sleep milli: %d, retry getting leader.", goid.Get(), sleepMillis), hm.pCfg.EnableProbeLog)
 		case <-localChan:
-			checkLogger.Debug("Leader has been updated, retry getting leader.", hm.pCfg.EnableProbeLog)
+			checkLogger.Info("Leader has been updated, retry getting leader.", hm.pCfg.EnableProbeLog)
 		}
 
 	}
@@ -1039,9 +1062,9 @@ func (hm *HaManager) getAvailableCnWithWait(timeout int32, zoneName string, minZ
 
 		select {
 		case <-time.After(maxDuration(0, time.Duration(sleepMillis)*time.Millisecond)):
-			mainLogger.Debug(fmt.Sprintf("Waiting cn time out: %d ms, retry getting cn.", timeout), hm.pCfg.EnableLog)
+			mainLogger.Info(fmt.Sprintf("Waiting cn time out: %d ms, retry getting cn.", timeout), hm.pCfg.EnableLog)
 		case <-localChan:
-			mainLogger.Debug("Cluster has been updated, retry getting cn.", hm.pCfg.EnableLog)
+			mainLogger.Info("Cluster has been updated, retry getting cn.", hm.pCfg.EnableLog)
 		}
 
 	}

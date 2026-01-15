@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1946,4 +1949,38 @@ func testCNReadOnlyConnection(t *testing.T, dsn string, node string) {
 	}
 
 	t.Logf("Correctly failed database and table creation attempts on read-only node %s", node)
+}
+
+func TestCNWrongJsonFile(t *testing.T) {
+	if *testType != "cn" {
+		t.Skip("Skip non-cn test")
+	}
+
+	tmpDir := os.TempDir()
+	jsonFile := filepath.Join(tmpDir, fmt.Sprintf("PolarDB-X-%s-IPv4-go.json", sanitizeAddr(*addr)))
+	t.Logf("jsonFile: %s", jsonFile)
+
+	err := ioutil.WriteFile(jsonFile, []byte("123123"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	t.Logf("Wrote file with wrong content")
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/?charset=utf8mb4&parseTime=True&enableLog=%s&enableProbeLog=%s",
+		*user, *passwd, *addr, *enableLog, *enableProbeLog)
+
+	db, err := sql.Open("polardbx", dsn)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
+
+	_, err = db.Query("select 1")
+	if err != nil {
+		t.Fatalf("Failed to execute select 1: %v", err)
+	}
 }
