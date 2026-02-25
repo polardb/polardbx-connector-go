@@ -21,9 +21,21 @@ func (d PolarDBXDriver) Open(dsn string) (driver.Conn, error) {
 	}
 
 	if pCfg.DirectMode {
-		driverCtx := &mysql.MySQLDriver{}
 		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
-		return driverCtx.Open(mysqlDsn)
+		mysqlCfg, err := mysql.ParseDSN(mysqlDsn)
+		if err != nil {
+			return nil, err
+		}
+		if len(pCfg.MysqlOptions) > 0 {
+			if err := mysqlCfg.Apply(pCfg.MysqlOptions...); err != nil {
+				return nil, err
+			}
+		}
+		openConnector, err := mysql.NewConnector(mysqlCfg)
+		if err != nil {
+			return nil, err
+		}
+		return openConnector.Connect(context.Background())
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -47,9 +59,17 @@ func init() {
 // NewConnector returns new driver.Connector.
 func NewConnector(pCfg *PolarDBXConfig) (driver.Connector, error) {
 	if pCfg.DirectMode {
-		driverCtx := &mysql.MySQLDriver{}
 		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
-		return driverCtx.OpenConnector(mysqlDsn)
+		mysqlCfg, err := mysql.ParseDSN(mysqlDsn)
+		if err != nil {
+			return nil, err
+		}
+		if len(pCfg.MysqlOptions) > 0 {
+			if err := mysqlCfg.Apply(pCfg.MysqlOptions...); err != nil {
+				return nil, err
+			}
+		}
+		return mysql.NewConnector(mysqlCfg)
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -70,9 +90,17 @@ func (d PolarDBXDriver) OpenConnector(dsn string) (driver.Connector, error) {
 	}
 
 	if pCfg.DirectMode {
-		driverCtx := &mysql.MySQLDriver{}
 		mysqlDsn, _ := pCfg.FormatMYSQLDSN(pCfg.Addr)
-		return driverCtx.OpenConnector(mysqlDsn)
+		mysqlCfg, err := mysql.ParseDSN(mysqlDsn)
+		if err != nil {
+			return nil, err
+		}
+		if len(pCfg.MysqlOptions) > 0 {
+			if err := mysqlCfg.Apply(pCfg.MysqlOptions...); err != nil {
+				return nil, err
+			}
+		}
+		return mysql.NewConnector(mysqlCfg)
 	}
 
 	// construct HA Manager and get the real address for mysql connection
@@ -104,10 +132,21 @@ func recordDsn(dsn string, pCfg *PolarDBXConfig, hm *HaManager) error {
 		return err
 	} else {
 		mysqlDsn, hasParam := pCfg.FormatMYSQLDSN(connectAddress)
-		db, err := sql.Open("mysql", mysqlDsn)
+		mysqlCfg, err := mysql.ParseDSN(mysqlDsn)
 		if err != nil {
 			return err
 		}
+		if len(pCfg.MysqlOptions) > 0 {
+			if err := mysqlCfg.Apply(pCfg.MysqlOptions...); err != nil {
+				return err
+			}
+		}
+
+		newConnector, err := mysql.NewConnector(mysqlCfg)
+		if err != nil {
+			return err
+		}
+		db := sql.OpenDB(newConnector)
 		if hasParam {
 			mysqlDsn = mysqlDsn + fmt.Sprintf("&driverVersion=%s", Version)
 		} else {

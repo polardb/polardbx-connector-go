@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
+	"github.com/go-sql-driver/mysql"
 )
 
 type PolarDBXConfig struct {
@@ -53,6 +54,8 @@ type PolarDBXConfig struct {
 
 	// MYSQL params
 	MysqlParams map[string]string
+
+	MysqlOptions []mysql.Option
 
 	// PolarDBX param set
 	PropertiesSet mapset.Set
@@ -152,6 +155,11 @@ func (pCfg *PolarDBXConfig) Clone() *PolarDBXConfig {
 		for k, v := range pCfg.MysqlParams {
 			newConfig.MysqlParams[k] = v
 		}
+	}
+
+	if pCfg.MysqlOptions != nil {
+		newConfig.MysqlOptions = make([]mysql.Option, len(pCfg.MysqlOptions))
+		copy(newConfig.MysqlOptions, pCfg.MysqlOptions)
 	}
 
 	newConfig.PropertiesSet = mapset.NewSet()

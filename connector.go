@@ -47,9 +47,23 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 		}
 		mainLogger.Debug(fmt.Sprintf("The connect node is: %s", connectAddress), cfg.EnableLog)
 
-		driverCtx := &mysql.MySQLDriver{}
 		mysqlDsn, _ := cfg.FormatMYSQLDSN(connectAddress)
-		openConnector, err := driverCtx.OpenConnector(mysqlDsn)
+		
+		mysqlCfg, err := mysql.ParseDSN(mysqlDsn)
+		if err != nil {
+			c.countDownConn(connectAddress)
+			return nil, err
+		}
+		
+		if len(cfg.MysqlOptions) > 0 {
+			err = mysqlCfg.Apply(cfg.MysqlOptions...)
+			if err != nil {
+				c.countDownConn(connectAddress)
+				return nil, err
+			}
+		}
+
+		openConnector, err := mysql.NewConnector(mysqlCfg)
 		if err != nil {
 			c.countDownConn(connectAddress)
 			return nil, err
