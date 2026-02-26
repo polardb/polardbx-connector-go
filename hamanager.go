@@ -318,7 +318,7 @@ func GetManager(pCfg *PolarDBXConfig) (*HaManager, error) {
 				pCfg:          pCfg,
 				isDn:          isDn,
 				useIPv6:       useIPv6,
-				dnClusterInfo: &XClusterInfo{GlobalPortGap: -10000},
+				dnClusterInfo: &XClusterInfo{GlobalPortGap: -8000},
 				connCnt:       &sync.Map{},
 			}
 			req := make(chan struct{})
@@ -818,8 +818,7 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 			info, err := hm.getDnInfo(address.(string))
 			if err != nil {
 				checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
-			}
-			if info != nil {
+			} else if info != nil {
 				mu.Lock()
 				nodes[info.Tag] = info
 				mu.Unlock()
@@ -894,14 +893,6 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 		return nodeList[i].Tag < nodeList[j].Tag
 	})
 
-	hm.mu.RLock()
-	jsonFile := hm.pCfg.JsonFile
-	hm.mu.RUnlock()
-	err = hm.saveDnToFile(nodeList, jsonFile)
-	if err != nil {
-		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
-	}
-
 	versionStr := leader.Version
 	hm.version = versionString2Int32(versionStr)
 
@@ -952,6 +943,14 @@ func (hm *HaManager) probeAndUpdateLeader() *XClusterNodeBasic {
 	newReq := make(chan struct{})
 	hm.connReq = &newReq
 	hm.mu.Unlock()
+
+	hm.mu.RLock()
+	jsonFile := hm.pCfg.JsonFile
+	hm.mu.RUnlock()
+	err = hm.saveDnToFile(nodeList, jsonFile)
+	if err != nil {
+		checkLogger.ErrorWithStack(err, hm.pCfg.EnableProbeLog)
+	}
 
 	return leader
 }
